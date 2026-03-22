@@ -113,6 +113,8 @@ export interface ToolExecuteOptions {
   subagentTasks?: SubagentTaskConfig;
   /** Callback to process tool artifacts (code output files, file citations, etc.) */
   toolEndCallback?: ToolEndCallback;
+  /** Called once per batch before tool execution to lazily provision files to tool environments */
+  provisionFiles?: (toolNames: string[], agentId?: string) => Promise<void>;
   /**
    * Persists a backgrounded code-execution result onto the dispatch turn once
    * the detached call settles: downloads/persists generated files, patches the
@@ -4194,6 +4196,7 @@ export function createToolExecuteHandler(options: ToolExecuteOptions): EventHand
     emitAttachment,
     emitPtcProgress,
     subagentTasks,
+    provisionFiles,
   } = options;
 
   return {
@@ -4252,6 +4255,11 @@ export function createToolExecuteHandler(options: ToolExecuteOptions): EventHand
               return;
             }
             const toolNames = [...new Set(allowedToolCalls.map((tc) => tc.name))];
+
+            if (provisionFiles) {
+              await provisionFiles(toolNames, agentId);
+            }
+
             const { loadedTools, configurable: toolConfigurable } = await loadTools(
               toolNames,
               agentId,
