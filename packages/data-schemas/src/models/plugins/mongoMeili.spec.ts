@@ -1208,7 +1208,10 @@ describe('Meilisearch Mongoose plugin', () => {
 
       rejectMeiliWrite!(new Error('Network error'));
       await waitForMockCalls(mockAddDocuments, 2);
-      await wait(25);
+      await waitForCondition(async () => {
+        const storedDoc = await conversationModel.collection.findOne({ _id: conversation._id });
+        return storedDoc?._meiliIndex === true && storedDoc?._meiliIndexAttempted === true;
+      });
 
       const storedConversation = await conversationModel.collection.findOne({
         _id: conversation._id,
@@ -1232,7 +1235,10 @@ describe('Meilisearch Mongoose plugin', () => {
         endpoint: EModelEndpoint.openAI,
       });
       await waitForMock(mockAddDocuments);
-      await wait(25);
+      await waitForCondition(async () => {
+        const storedDoc = await conversationModel.collection.findOne({ _id: conversation._id });
+        return storedDoc?._meiliIndex === true;
+      });
       mockUpdateDocuments
         .mockRejectedValueOnce(new Error('Network error'))
         .mockRejectedValueOnce(new Error('Network error'))
@@ -1246,7 +1252,10 @@ describe('Meilisearch Mongoose plugin', () => {
         (await conversationModel.collection.findOne({ _id: conversation._id }))?._meiliIndex,
       ).toBe(false);
       await waitForMockCalls(mockUpdateDocuments, 3);
-      await wait(25);
+      await waitForCondition(async () => {
+        const storedDoc = await conversationModel.collection.findOne({ _id: conversation._id });
+        return storedDoc?._meiliIndex === false && storedDoc?._meiliIndexAttempted === true;
+      });
 
       const storedConversation = await conversationModel.collection.findOne({
         _id: conversation._id,
@@ -1292,7 +1301,10 @@ describe('Meilisearch Mongoose plugin', () => {
 
       resolveStaleWrite!({ taskUid: 1 });
       await waitForMockCalls(mockAddDocuments, 2);
-      await wait(25);
+      await waitForCondition(async () => {
+        const storedDoc = await conversationModel.collection.findOne({ _id: conversation._id });
+        return storedDoc?._meiliIndex === true && storedDoc?._meiliIndexVersion === latestVersion;
+      });
 
       expect(mockAddDocuments.mock.calls[1]).toEqual([
         [expect.objectContaining({ title: 'Latest Replica Snapshot' })],

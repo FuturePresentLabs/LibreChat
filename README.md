@@ -51,25 +51,29 @@
   </a>
 </p>
 
-## 🚀 What's New in v0.8.8-rc1
+## 🚀 What's New in v0.8.8-rc2
 
-- **Agent run control:** Interrupt or steer an Agent mid-run, queue follow-up messages, and reclaim, edit, or escalate pending steers.
-- **Human-in-the-loop Agents:** Agents stream question progress, ask up to four related questions in one form, pause for input or tool approval, and resume.
+- **Agent run control:** Interrupt or steer an Agent mid-run with files and quoted excerpts, queue follow-up messages, and manage accepted controls for running Subagents.
+- **Human-in-the-loop Agents:** Agents stream question progress, step through up to four related questions, pause for input or tool approval, and resume.
 - **Unified Agent Builder:** A redesigned Tools marketplace brings together Skills, MCP, Code Interpreter, orchestration, Programmatic Tool Calling, model-spec controls, and per-tool background and intent settings.
-- **Readable Agent activity:** Generated activity-group headers, parent phase summaries, and live tool intent labels make long reasoning and tool runs easier to scan.
-- **Code Interpreter workflows:** Code and shell tools can run in the background, sandbox images return as viewable artifacts, and highly experimental stateful sessions can reuse prewarmed conversation workspaces.
-- **Agent extensibility:** Experimental Agent Plugins can bundle deployment Skills, MCP servers, and opt-in command hooks, while explicit subagents initialize only when selected.
-- **Memory, context, and identity:** Agents can manage memory with optional per-agent isolation, expose support contacts safely, and show a more faithful Context Usage gauge.
+- **Readable Agent activity:** Generated summaries and labels, elapsed generation time, tool durations, unified Subagent panels, parent-visible event-child turns, live programmatic-tool traces, and follow-scrolling code panes make long runs easier to scan.
+- **Code Interpreter workflows:** Code and shell tools can run in the background, sandbox images return as viewable artifacts, and highly experimental stateful sessions add scoped workspaces with per-message file downloads.
+- **Agent extensibility:** Experimental Agent Plugins bundle deployment Skills, MCP servers, and opt-in command hooks; detached Subagents stream into a unified panel and completed child chats can be continued as normal conversations.
+- **Scheduled Chats (experimental):** Run saved Agents with presets or custom cron expressions, selectable time zones, multi-day weekly cadence, and optional Chat Project destinations; disabled by default.
+- **Agent automation:** Authenticated Remote Agents event endpoints admit durable fire and steer deliveries, with opt-in bound child actors, parent-visible activity, and Subagent completion wakeups.
+- **Memory, context, and identity:** Agents can manage memory with optional per-agent isolation, expose support contacts safely, and show a categorized Context Usage gauge with a collapsible breakdown.
 - **Sharing and files:** Shared conversations show a badge and update at a stable URL, while signed-in viewers can continue them as personal copies.
+- **Projects:** Search and sort personal workspaces, add descriptions, start scoped chats, and manage conversations directly from project views.
+- **Settings and controls:** Search settings, choose clock and week-start conventions, optionally leave chat visible beside the mobile drawer, toggle shortcuts without losing custom bindings, collapse long user messages, and archive all chats.
 - **Artifact workflows:** Open previews fullscreen, work with PowerPoint `.potx` templates across upload, search, and code execution, upload shell scripts across common MIME variants, export Mermaid diagrams as SVG or PNG, and download original Office files from the artifact panel.
 - **Models and reasoning:** Added GPT-5.6 with Responses API reasoning controls, Claude Opus 5 and Sonnet 5, Gemini 3.7 and 3.6 Flash, and Gemini 3.5 Flash-Lite.
-- **Langfuse observability:** Configure encrypted Langfuse connections in-app, let authorized admins open sampled sessions directly, optionally fan out traces by tenant, and suppress central export per run.
-- **Administration and security:** Delegate config sections, encrypt registered secrets, enforce SSRF checks for speech, OCR, and web tools, and generate unique temporary credentials when secrets are blank.
-- **Messages and navigation:** Right-aligned user turns, unified multi-part editing, full-message copy, a dock-style message rail, virtualized search, smooth streaming, and faster Agent startup.
+- **Langfuse observability:** Configure encrypted connections in-app, authenticate self-hosted gateways with deployment headers, open sampled sessions as an authorized admin, fan out traces by tenant, and suppress central export per run.
+- **Administration and security:** Apply source-aware content filters across messages, prompts, Agents, Skills, files, memories, tools, and other model-bound data; review tenant-scoped Insights, delegate config, encrypt secrets, enforce SSRF checks, and expire inactive violation scores on a configurable schedule.
+- **Messages and navigation:** Temporary Chat has a clear empty state and active indicator; side panels share clearer empty and retry states, mobile streams recover after backgrounding, long-paste and attachment-only turns are supported, single-dollar LaTeX leaves currency values intact, and Upload as Text files download reliably.
 - **Streaming and tool reliability:** Adaptive provider smoothing, Redis delta batching, dynamic MCP tool refresh, parsed MCP response media types, runtime OAuth recovery, and Agent stream circuit breakers improve long-running workflows.
-- **Deployment and reliability:** Added configurable HTTP timeouts, Amazon DocumentDB 5.0+ support, low-noise Redis and browser observability, and a rolling-upgrade-safe generation protocol.
+- **Deployment and reliability:** Added configurable HTTP timeouts, Amazon DocumentDB 5.0+ support, low-noise Redis and browser observability, a rolling-upgrade-safe generation protocol, and parent-controlled themes that preserve saved user themes.
 
-Read the [full v0.8.8-rc1 changelog](https://www.librechat.ai/changelog/v0.8.8-rc1).
+Read the [full v0.8.8-rc2 changelog](https://www.librechat.ai/changelog/v0.8.8-rc2).
 
 # ✨ Features
 
