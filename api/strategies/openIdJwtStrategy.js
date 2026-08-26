@@ -123,6 +123,7 @@ const openIdJwtLogin = (openIdConfig) => {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       secretOrKeyProvider: jwksRsa.passportJwtSecret(jwksRsaOptions),
       audience: getOpenIdJwtAudience(),
+      algorithms: ['RS256'],
       passReqToCallback: true,
     },
     /**

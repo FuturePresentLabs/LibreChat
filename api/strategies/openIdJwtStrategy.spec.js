@@ -148,6 +148,7 @@ describe('openIdJwtStrategy – token validation', () => {
 
     expect(capturedStrategyOptions).toMatchObject({
       audience: 'librechat-client-id',
+      algorithms: ['RS256'],
       passReqToCallback: true,
     });
     expect(capturedStrategyOptions).not.toHaveProperty('issuer');
