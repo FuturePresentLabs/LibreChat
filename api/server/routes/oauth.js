@@ -44,9 +44,31 @@ const authenticateOpenIDCallback = createOpenIDCallbackAuthenticator({
   ...authFailureRedirectOptions,
 });
 
+function logOpenIDRequest(event, req) {
+  logger.info(event, {
+    provider: 'openid',
+    host: req.headers.host,
+    forwarded_host: req.headers['x-forwarded-host'],
+    forwarded_proto: req.headers['x-forwarded-proto'],
+    referer: req.headers.referer,
+    has_code: typeof req.query.code === 'string',
+    has_state: typeof req.query.state === 'string',
+    error: typeof req.query.error === 'string' ? req.query.error : undefined,
+  });
+}
+
 router.get('/error', (req, res) => {
   /** A single error message is pushed by passport when authentication fails. */
   const errorMessage = getOAuthFailureMessage(req);
+  logger.warn('[OAuth] Error route hit', {
+    provider: 'unknown',
+    host: req.headers.host,
+    forwarded_host: req.headers['x-forwarded-host'],
+    forwarded_proto: req.headers['x-forwarded-proto'],
+    referer: req.headers.referer,
+    error: typeof req.query.error === 'string' ? req.query.error : undefined,
+    message: errorMessage,
+  });
   logger.warn(
     '[OAuth] Authentication failed',
     buildOAuthFailureLog({
@@ -114,6 +136,7 @@ router.get(
  * OpenID Routes
  */
 router.get('/openid', (req, res, next) => {
+  logOpenIDRequest('[OpenID OAuth] Start route hit', req);
   return passport.authenticate('openid', {
     session: false,
     state: randomState(),
@@ -122,6 +145,10 @@ router.get('/openid', (req, res, next) => {
 
 router.get(
   '/openid/callback',
+  (req, res, next) => {
+    logOpenIDRequest('[OpenID OAuth] Callback route hit', req);
+    next();
+  },
   authenticateOpenIDCallback,
   setBalanceConfig,
   checkDomainAllowed,

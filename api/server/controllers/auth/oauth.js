@@ -70,6 +70,11 @@ function createOAuthHandler(redirectUri = domains.client) {
       }
 
       /** Standard OAuth flow - set cookies and redirect */
+      logger.info('[OAuth] Completing login', {
+        provider: req.user?.provider,
+        email: req.user?.email,
+        redirectUri,
+      });
       if (
         req.user &&
         req.user.provider == 'openid' &&
@@ -83,6 +88,11 @@ function createOAuthHandler(redirectUri = domains.client) {
       } else {
         await setAuthTokens(req.user._id, res, null, req);
       }
+      logger.info('[OAuth] Redirecting after login', {
+        provider: req.user?.provider,
+        email: req.user?.email,
+        redirectUri,
+      });
       res.redirect(redirectUri);
     } catch (err) {
       logger.error('Error in setting authentication tokens:', err);
