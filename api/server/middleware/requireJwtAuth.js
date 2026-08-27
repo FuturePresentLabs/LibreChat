@@ -19,6 +19,7 @@ const hasPassportStrategy = (strategy) =>
   typeof passport._strategy === 'function' && passport._strategy(strategy) != null;
 
 const getAuthenticatedUserId = (user) => user?.id?.toString?.() ?? user?._id?.toString?.();
+const isOpenIDUser = (user) => user?.provider === 'openid' || Boolean(user?.openidId);
 const refreshCloudFrontCookies =
   maybeRefreshCloudFrontAuthCookiesMiddleware ?? ((_req, _res, next) => next());
 const ACCOUNT_DELETION_CODE = 'ACCOUNT_DELETION_IN_PROGRESS';
@@ -72,7 +73,8 @@ function hydrateOpenIDFederatedTokens({ req, res, user, parsedCookies, openIdReu
   if (
     !isEnabled(process.env.OPENID_REUSE_TOKENS) ||
     !isEnabled(process.env.OPENID_ACCESS_TOKEN_COOKIE_FALLBACK) ||
-    getAuthenticatedUserId(user) !== openIdReuseUserId
+    !isOpenIDUser(user) ||
+    (openIdReuseUserId != null && getAuthenticatedUserId(user) !== openIdReuseUserId)
   ) {
     return;
   }
@@ -80,7 +82,8 @@ function hydrateOpenIDFederatedTokens({ req, res, user, parsedCookies, openIdReu
   const sessionTokens = req.session?.openidTokens;
   let accessToken = sessionTokens?.accessToken || parsedCookies.openid_access_token;
   let idToken = sessionTokens?.idToken || parsedCookies.openid_id_token;
-  let refreshToken = sessionTokens?.refreshToken || parsedCookies.refreshToken;
+  let refreshToken =
+    sessionTokens?.refreshToken || parsedCookies.openid_refresh_token || parsedCookies.refreshToken;
 
   if (refreshToken && isAccessTokenRefreshNeeded(accessToken)) {
     return openIdClient
@@ -105,7 +108,7 @@ function hydrateOpenIDFederatedTokens({ req, res, user, parsedCookies, openIdReu
         }
         setRecoveredOpenIDCookie(res, 'openid_access_token', accessToken);
         setRecoveredOpenIDCookie(res, 'openid_id_token', idToken);
-        setRecoveredOpenIDCookie(res, 'refreshToken', refreshToken);
+        setRecoveredOpenIDCookie(res, 'openid_refresh_token', refreshToken);
         applyOpenIDFederatedTokens(user, accessToken, idToken, refreshToken);
         logger.debug('[requireJwtAuth] recovered OpenID access token for request context', {
           has_access_token: Boolean(accessToken),
@@ -300,7 +303,7 @@ const requireJwtAuth = (req, res, next) => {
         });
       };
 
-      if (tokenProvider === 'openid') {
+      if (tokenProvider === 'openid' || isOpenIDUser(user)) {
         const hydration = hydrateOpenIDFederatedTokens({
           req,
           res,

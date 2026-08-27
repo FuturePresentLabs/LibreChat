@@ -32,7 +32,7 @@ const logoutController = async (req, res) => {
     idToken = req.session.openidTokens.idToken;
     delete req.session.openidTokens;
   }
-  refreshToken = refreshToken || parsedCookies.refreshToken;
+  refreshToken = refreshToken || parsedCookies.openid_refresh_token || parsedCookies.refreshToken;
   idToken = idToken || parsedCookies.openid_id_token;
 
   try {
@@ -40,6 +40,7 @@ const logoutController = async (req, res) => {
     const { status, message } = logout;
 
     res.clearCookie('refreshToken');
+    res.clearCookie('openid_refresh_token');
     res.clearCookie('openid_access_token');
     res.clearCookie('openid_id_token');
     res.clearCookie('openid_user_id');

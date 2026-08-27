@@ -429,6 +429,11 @@ describe('requireJwtAuth tenant context chaining', () => {
       'fresh-openid-access',
       expect.objectContaining({ httpOnly: true, sameSite: 'lax' }),
     );
+    expect(res.cookie).toHaveBeenCalledWith(
+      'openid_refresh_token',
+      'fresh-openid-refresh',
+      expect.objectContaining({ httpOnly: true, sameSite: 'lax' }),
+    );
   });
 
   it('refreshes an expired OpenID access token during local JWT fallback', async () => {
@@ -492,6 +497,58 @@ describe('requireJwtAuth tenant context chaining', () => {
       'replacement-openid-access',
       expect.objectContaining({ httpOnly: true, sameSite: 'lax' }),
     );
+  });
+
+  it('hydrates OpenID tokens for OpenID users authenticated by local JWT cookies', async () => {
+    isEnabled.mockReturnValue(true);
+    openIdClient.refreshTokenGrant.mockResolvedValue({
+      access_token: 'fresh-openid-access',
+      id_token: 'fresh-openid-id',
+      refresh_token: 'fresh-openid-refresh',
+    });
+    const req = mockReq(undefined, {
+      requestId: 'req-openid-local-provider-recovery',
+      method: 'POST',
+      path: '/api/mcp/comfyui/reinitialize',
+      headers: {
+        authorization: 'Bearer local-app-token',
+        cookie: 'token_provider=librechat; openid_refresh_token=stored-openid-refresh',
+      },
+      session: {},
+      _mockStrategies: {
+        jwt: {
+          user: {
+            id: 'user-jwt',
+            tenantId: 'tenant-jwt',
+            role: 'user',
+            provider: 'openid',
+            openidId: 'openid-sub',
+          },
+        },
+      },
+    });
+    const res = mockRes();
+    const next = jest.fn();
+
+    await new Promise((resolve) => {
+      requireJwtAuth(req, res, (error) => {
+        next(error);
+        resolve(error);
+      });
+    });
+
+    expect(next).toHaveBeenCalledWith(undefined);
+    expect(openIdClient.refreshTokenGrant).toHaveBeenCalledWith(
+      getOpenIdConfig(),
+      'stored-openid-refresh',
+      { scope: 'openid profile email' },
+    );
+    expect(req.user.federatedTokens).toEqual({
+      access_token: 'fresh-openid-access',
+      id_token: 'fresh-openid-id',
+      refresh_token: 'fresh-openid-refresh',
+      expires_at: undefined,
+    });
   });
 
   it('does not let malformed Passport info break JWT fallback logging', () => {

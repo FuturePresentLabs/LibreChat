@@ -231,7 +231,8 @@ const openIdJwtLogin = (openIdConfig) => {
           if (!accessToken || !refreshToken || !idToken) {
             accessToken = accessToken || parsedCookies.openid_access_token;
             idToken = idToken || parsedCookies.openid_id_token;
-            refreshToken = refreshToken || parsedCookies.refreshToken;
+            refreshToken =
+              refreshToken || parsedCookies.openid_refresh_token || parsedCookies.refreshToken;
           }
 
           const resolvedAccessToken = accessToken || rawToken;

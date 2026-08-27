@@ -158,7 +158,10 @@ const refreshController = async (req, res) => {
 
   if (token_provider === 'openid' && isEnabled(process.env.OPENID_REUSE_TOKENS)) {
     /** For OpenID users, read refresh token from session to avoid large cookie issues */
-    const refreshToken = req.session?.openidTokens?.refreshToken || parsedCookies.refreshToken;
+    const refreshToken =
+      req.session?.openidTokens?.refreshToken ||
+      parsedCookies.openid_refresh_token ||
+      parsedCookies.refreshToken;
 
     if (!refreshToken) {
       return res.status(200).send('Refresh token not provided');

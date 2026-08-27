@@ -790,6 +790,12 @@ const setOpenIDAuthTokens = (
       secure: shouldUseSecureCookie(),
       sameSite: 'lax',
     });
+    res.cookie('openid_refresh_token', refreshToken, {
+      expires: expirationDate,
+      httpOnly: true,
+      secure: shouldUseSecureCookie(),
+      sameSite: 'lax',
+    });
 
     /** Store tokens server-side in session to avoid large cookies */
     if (req.session) {
