@@ -778,7 +778,11 @@ function createMCPStatusRuntimeContext(user, mcpConfig, serverNames) {
     });
     return mcpAllowlistsPromise;
   };
-  return { user: createSafeUser(user), loadUserMCPAuthMap, loadMCPAllowlists };
+  return {
+    user: createSafeUser(user, { includeFplSsoToken: true }),
+    loadUserMCPAuthMap,
+    loadMCPAllowlists,
+  };
 }
 
 function getMCPReinitializeOAuthTimeout(oauthExpiresAt) {

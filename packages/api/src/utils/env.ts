@@ -53,6 +53,7 @@ const ALLOWED_USER_FIELDS = [
 
 type AllowedUserField = (typeof ALLOWED_USER_FIELDS)[number];
 type SafeUser = Pick<IUser, AllowedUserField>;
+type FplSsoUser = { fplSsoToken?: string };
 
 /**
  * Encodes a string value to be safe for HTTP headers.
@@ -107,12 +108,16 @@ export function encodeHeaderValue(value: string): string {
  */
 export function createSafeUser(
   user: IUser | null | undefined,
-): Partial<SafeUser> & { federatedTokens?: IUser['federatedTokens'] } {
+  options: { includeFplSsoToken?: boolean } = {},
+): Partial<SafeUser> & { federatedTokens?: IUser['federatedTokens']; fplSsoToken?: string } {
   if (!user) {
     return {};
   }
 
-  const safeUser: Partial<SafeUser> & { federatedTokens?: IUser['federatedTokens'] } = {};
+  const safeUser: Partial<SafeUser> & {
+    federatedTokens?: IUser['federatedTokens'];
+    fplSsoToken?: string;
+  } = {};
   for (const field of ALLOWED_USER_FIELDS) {
     if (field in user) {
       /**
@@ -137,6 +142,11 @@ export function createSafeUser(
     safeUser.federatedTokens = user.federatedTokens;
   }
 
+  const fplSsoToken = (user as FplSsoUser).fplSsoToken;
+  if (options.includeFplSsoToken && typeof fplSsoToken === 'string' && fplSsoToken.length > 0) {
+    safeUser.fplSsoToken = fplSsoToken;
+  }
+
   return safeUser;
 }
 
@@ -147,6 +157,7 @@ export function createSafeUser(
 export const ALLOWED_BODY_FIELDS = ['conversationId', 'parentMessageId', 'messageId'] as const;
 
 const OPENID_PLACEHOLDER_NAMES = `LIBRECHAT_OPENID_(?:${OPENID_TOKEN_FIELDS.join('|')}|TOKEN)`;
+const FPL_SSO_TOKEN_PLACEHOLDER = '{{LIBRECHAT_FPL_SSO_TOKEN}}';
 
 /**
  * Matches every placeholder this module knows how to resolve: the enumerated
@@ -160,6 +171,7 @@ const RESOLVABLE_PLACEHOLDER_PATTERN = new RegExp(
     `LIBRECHAT_USER_(?:${ALLOWED_USER_FIELDS.map((field) => field.toUpperCase()).join('|')})`,
     `LIBRECHAT_BODY_(?:${ALLOWED_BODY_FIELDS.map((field) => field.toUpperCase()).join('|')})`,
     OPENID_PLACEHOLDER_NAMES,
+    'LIBRECHAT_FPL_SSO_TOKEN',
   ]
     .map((names) => `\\{\\{(?:${names})\\}\\}`)
     .join('|'),
@@ -273,6 +285,24 @@ function processBodyPlaceholders(value: string, body: RequestBody): string {
   return value;
 }
 
+function processFplSsoPlaceholder(value: string, user?: Partial<IUser> & FplSsoUser): string {
+  if (!value.includes(FPL_SSO_TOKEN_PLACEHOLDER)) {
+    return value;
+  }
+
+  const fplSsoToken = user?.fplSsoToken;
+  if (typeof fplSsoToken !== 'string' || fplSsoToken.length === 0) {
+    logger.warn(
+      `FPL SSO token is unavailable; cannot resolve ${FPL_SSO_TOKEN_PLACEHOLDER} for the current request`,
+    );
+    throw new OpenIDReauthRequiredError(
+      `FPL SSO token is unavailable; re-authentication is required to resolve ${FPL_SSO_TOKEN_PLACEHOLDER}`,
+    );
+  }
+
+  return value.replace(new RegExp(FPL_SSO_TOKEN_PLACEHOLDER, 'g'), fplSsoToken);
+}
+
 /**
  * Processes a single string value by replacing various types of placeholders
  *
@@ -331,6 +361,7 @@ function processSingleValue({
   }
 
   value = processUserPlaceholders(value, user, isHeader);
+  value = processFplSsoPlaceholder(value, user as (Partial<IUser> & FplSsoUser) | undefined);
 
   const openidTokenInfo = extractOpenIDTokenInfo(user);
   if (openidTokenInfo && isOpenIDTokenValid(openidTokenInfo)) {

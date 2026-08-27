@@ -69,6 +69,21 @@ function applyOpenIDFederatedTokens(user, accessToken, idToken, refreshToken) {
   };
 }
 
+function applyFplSsoToken(user, parsedCookies) {
+  const cookieName = process.env.FPL_AUTH_COOKIE_NAME || 'palisade_token';
+  const token = parsedCookies?.[cookieName];
+  if (!token || typeof token !== 'string') {
+    return;
+  }
+
+  Object.defineProperty(user, 'fplSsoToken', {
+    value: token,
+    enumerable: false,
+    configurable: true,
+    writable: true,
+  });
+}
+
 function hydrateOpenIDFederatedTokens({ req, res, user, parsedCookies, openIdReuseUserId }) {
   if (
     !isEnabled(process.env.OPENID_REUSE_TOKENS) ||
@@ -292,6 +307,7 @@ const requireJwtAuth = (req, res, next) => {
         return res.status(401).json({ message: 'Unauthorized' });
       }
       const completeAuthentication = () => {
+        applyFplSsoToken(user, parsedCookies);
         req.user = user;
         req.authStrategy = strategy;
         logFallbackSuccess(strategy);

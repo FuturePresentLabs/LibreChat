@@ -2188,6 +2188,19 @@ describe('createSafeUser', () => {
     expect(() => createSafeUser(user)).not.toThrow();
     expect(createSafeUser(user).id).toBeUndefined();
   });
+
+  it('strips the FPL SSO token unless explicitly requested', () => {
+    const user = {
+      id: 'user-123',
+      email: 'user@example.com',
+      fplSsoToken: 'palisade-session-token',
+    } as unknown as IUser;
+
+    expect(createSafeUser(user)).not.toHaveProperty('fplSsoToken');
+    expect(createSafeUser(user, { includeFplSsoToken: true })).toMatchObject({
+      fplSsoToken: 'palisade-session-token',
+    });
+  });
 });
 
 describe('resolveHeaders stripUnresolved', () => {
@@ -2318,6 +2331,48 @@ describe('resolveHeaders stripUnresolved', () => {
 
     expect(result['X-OpenID-Id']).toBe('{{LIBRECHAT_USER_OPENIDID}}');
     expect(result['X-User-Id']).toBe('{{LIBRECHAT_USER_ID}}');
+  });
+});
+
+describe('processMCPEnv FPL SSO token placeholders', () => {
+  it('substitutes the Palisade session token when explicitly present on the safe user', () => {
+    const user = createSafeUser(
+      {
+        id: 'user-123',
+        email: 'user@example.com',
+        fplSsoToken: 'palisade-session-token',
+      } as unknown as IUser,
+      { includeFplSsoToken: true },
+    );
+    const options: MCPOptions = {
+      type: 'streamable-http',
+      url: 'https://api.example.com',
+      headers: {
+        Authorization: 'Bearer {{LIBRECHAT_FPL_SSO_TOKEN}}',
+      },
+    };
+
+    const result = processMCPEnv({ options, user });
+
+    if (isStreamableHTTPOptions(result)) {
+      expect(result.headers?.Authorization).toBe('Bearer palisade-session-token');
+    } else {
+      throw new Error('Expected streamable-http options');
+    }
+  });
+
+  it('raises re-auth when a configured FPL SSO token placeholder has no request token', () => {
+    const options: MCPOptions = {
+      type: 'streamable-http',
+      url: 'https://api.example.com',
+      headers: {
+        Authorization: 'Bearer {{LIBRECHAT_FPL_SSO_TOKEN}}',
+      },
+    };
+
+    expect(() => processMCPEnv({ options, user: createSafeUser(undefined) })).toThrow(
+      'FPL SSO token is unavailable; re-authentication is required to resolve {{LIBRECHAT_FPL_SSO_TOKEN}}',
+    );
   });
 });
 
