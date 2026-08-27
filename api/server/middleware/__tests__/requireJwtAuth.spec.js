@@ -966,6 +966,32 @@ describe('requireJwtAuth tenant context chaining', () => {
   it('ALS context is not set at top-level scope (outside any request)', () => {
     expect(getTenantId()).toBeUndefined();
   });
+
+  it('attaches FPL SSO token and a trusted header accessor to the request user', () => {
+    const req = mockReq(
+      { id: 'u1', tenantId: 'tenant-fpl', role: 'user' },
+      {
+        headers: {
+          cookie: 'palisade_token=session-token; other=value',
+          'x-fpl-user-scopes': 'elmers.mcp mcp:image.workflow.admin,mcp:social.post',
+        },
+      },
+    );
+    const res = mockRes();
+    const next = jest.fn();
+
+    requireJwtAuth(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(req.user.requestAuthToken).toBe('session-token');
+    expect(req.user.fplSsoToken).toBe('session-token');
+    expect(req.user.getTrustedHeader('x-fpl-user-scopes')).toBe(
+      'elmers.mcp mcp:image.workflow.admin,mcp:social.post',
+    );
+    expect(Object.keys(req.user)).not.toContain('requestAuthToken');
+    expect(Object.keys(req.user)).not.toContain('fplSsoToken');
+    expect(Object.keys(req.user)).not.toContain('getTrustedHeader');
+  });
 });
 
 describe('requireRumProxyAuth', () => {

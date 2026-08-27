@@ -232,6 +232,18 @@ const BaseOptionsSchema = z.object({
       }),
     )
     .optional(),
+  /**
+   * Request-auth visibility gate for operator-managed MCP servers. This is a
+   * UI/discovery filter only; the MCP server or gateway still has to enforce
+   * authorization on every request.
+   */
+  auth: z
+    .object({
+      type: z.literal('trusted_header'),
+      scopesHeader: z.string().min(1),
+      requiredScopes: z.union([z.string(), z.array(z.string())]),
+    })
+    .optional(),
 });
 
 const ProxyUrlSchema = z
@@ -425,6 +437,7 @@ const omitServerManagedFields = <T extends z.ZodObject<z.ZodRawShape>>(schema: T
     requiresOAuth: true,
     customUserVars: true,
     oauth_headers: true,
+    auth: true,
   });
 
 const userManagedServerFields = <T extends z.ZodObject<z.ZodRawShape>>(schema: T) =>

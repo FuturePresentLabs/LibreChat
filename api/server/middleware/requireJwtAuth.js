@@ -69,15 +69,31 @@ function applyOpenIDFederatedTokens(user, accessToken, idToken, refreshToken) {
   };
 }
 
-function applyFplSsoToken(user, parsedCookies) {
+function firstHeaderValue(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function applyRequestAuthContext(user, req, parsedCookies) {
   const cookieName = process.env.FPL_AUTH_COOKIE_NAME || 'palisade_token';
   const token = parsedCookies?.[cookieName];
-  if (!token || typeof token !== 'string') {
-    return;
+  if (token && typeof token === 'string') {
+    Object.defineProperty(user, 'requestAuthToken', {
+      value: token,
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(user, 'fplSsoToken', {
+      value: token,
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
   }
 
-  Object.defineProperty(user, 'fplSsoToken', {
-    value: token,
+  Object.defineProperty(user, 'getTrustedHeader', {
+    value: (name) =>
+      typeof name === 'string' ? firstHeaderValue(req.headers[name.toLowerCase()]) : undefined,
     enumerable: false,
     configurable: true,
     writable: true,
@@ -102,11 +118,7 @@ function hydrateOpenIDFederatedTokens({ req, res, user, parsedCookies, openIdReu
 
   if (refreshToken && isAccessTokenRefreshNeeded(accessToken)) {
     return openIdClient
-      .refreshTokenGrant(
-        getOpenIdConfig(),
-        refreshToken,
-        buildOpenIDRefreshParams(),
-      )
+      .refreshTokenGrant(getOpenIdConfig(), refreshToken, buildOpenIDRefreshParams())
       .then((tokenset) => {
         accessToken = tokenset.access_token || accessToken;
         idToken = tokenset.id_token || idToken;
@@ -307,7 +319,7 @@ const requireJwtAuth = (req, res, next) => {
         return res.status(401).json({ message: 'Unauthorized' });
       }
       const completeAuthentication = () => {
-        applyFplSsoToken(user, parsedCookies);
+        applyRequestAuthContext(user, req, parsedCookies);
         req.user = user;
         req.authStrategy = strategy;
         logFallbackSuccess(strategy);

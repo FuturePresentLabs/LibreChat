@@ -492,6 +492,7 @@ export function redactServerSecrets(
     source: config.source,
     consumeOnly: config.consumeOnly,
     inspectionFailed: config.inspectionFailed,
+    auth: config.auth,
     customUserVars: config.customUserVars,
     serverInstructions: config.serverInstructions,
     /** Safe derived metadata: it exposes no placeholder-bearing value, but lets

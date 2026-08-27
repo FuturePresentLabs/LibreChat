@@ -779,7 +779,7 @@ function createMCPStatusRuntimeContext(user, mcpConfig, serverNames) {
     return mcpAllowlistsPromise;
   };
   return {
-    user: createSafeUser(user, { includeFplSsoToken: true }),
+    user: createSafeUser(user, { includeRequestAuthToken: true }),
     loadUserMCPAuthMap,
     loadMCPAllowlists,
   };
@@ -804,7 +804,7 @@ router.post(
   async (req, res) => {
     try {
       const { serverName } = req.params;
-      const user = createSafeUser(req.user);
+      const user = createSafeUser(req.user, { includeRequestAuthToken: true });
 
       if (!user.id) {
         return res.status(401).json({ error: 'User not authenticated' });
@@ -906,7 +906,7 @@ router.get('/connection/status', requireJwtAuth, async (req, res) => {
 
     const { mcpConfig, appConnections, userConnections, oauthServers } = await getMCPSetupData(
       user.id,
-      { role: user.role, tenantId: getTenantId() },
+      { role: user.role, tenantId: getTenantId(), user },
     );
     const runtimeContext = createMCPStatusRuntimeContext(user, mcpConfig, Object.keys(mcpConfig));
     const connectionStatus = Object.fromEntries(
@@ -969,7 +969,7 @@ router.get('/connection/status/:serverName', requireJwtAuth, async (req, res) =>
 
     const { mcpConfig, appConnections, userConnections, oauthServers } = await getMCPSetupData(
       user.id,
-      { role: user.role, tenantId: getTenantId() },
+      { role: user.role, tenantId: getTenantId(), user },
     );
 
     if (!mcpConfig[serverName]) {

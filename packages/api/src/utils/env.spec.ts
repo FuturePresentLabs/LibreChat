@@ -2189,16 +2189,19 @@ describe('createSafeUser', () => {
     expect(createSafeUser(user).id).toBeUndefined();
   });
 
-  it('strips the FPL SSO token unless explicitly requested', () => {
+  it('strips the request auth token unless explicitly requested', () => {
     const user = {
       id: 'user-123',
       email: 'user@example.com',
+      requestAuthToken: 'request-auth-token',
       fplSsoToken: 'palisade-session-token',
     } as unknown as IUser;
 
+    expect(createSafeUser(user)).not.toHaveProperty('requestAuthToken');
     expect(createSafeUser(user)).not.toHaveProperty('fplSsoToken');
-    expect(createSafeUser(user, { includeFplSsoToken: true })).toMatchObject({
-      fplSsoToken: 'palisade-session-token',
+    expect(createSafeUser(user, { includeRequestAuthToken: true })).toMatchObject({
+      requestAuthToken: 'request-auth-token',
+      fplSsoToken: 'request-auth-token',
     });
   });
 });
@@ -2334,15 +2337,41 @@ describe('resolveHeaders stripUnresolved', () => {
   });
 });
 
-describe('processMCPEnv FPL SSO token placeholders', () => {
-  it('substitutes the Palisade session token when explicitly present on the safe user', () => {
+describe('processMCPEnv request auth token placeholders', () => {
+  it('substitutes the request auth token when explicitly present on the safe user', () => {
+    const user = createSafeUser(
+      {
+        id: 'user-123',
+        email: 'user@example.com',
+        requestAuthToken: 'request-auth-token',
+      } as unknown as IUser,
+      { includeRequestAuthToken: true },
+    );
+    const options: MCPOptions = {
+      type: 'streamable-http',
+      url: 'https://api.example.com',
+      headers: {
+        Authorization: 'Bearer {{LIBRECHAT_AUTH_TOKEN}}',
+      },
+    };
+
+    const result = processMCPEnv({ options, user });
+
+    if (isStreamableHTTPOptions(result)) {
+      expect(result.headers?.Authorization).toBe('Bearer request-auth-token');
+    } else {
+      throw new Error('Expected streamable-http options');
+    }
+  });
+
+  it('keeps the legacy FPL SSO placeholder as a compatibility alias', () => {
     const user = createSafeUser(
       {
         id: 'user-123',
         email: 'user@example.com',
         fplSsoToken: 'palisade-session-token',
       } as unknown as IUser,
-      { includeFplSsoToken: true },
+      { includeRequestAuthToken: true },
     );
     const options: MCPOptions = {
       type: 'streamable-http',
@@ -2361,17 +2390,17 @@ describe('processMCPEnv FPL SSO token placeholders', () => {
     }
   });
 
-  it('raises re-auth when a configured FPL SSO token placeholder has no request token', () => {
+  it('raises re-auth when a configured request auth token placeholder has no request token', () => {
     const options: MCPOptions = {
       type: 'streamable-http',
       url: 'https://api.example.com',
       headers: {
-        Authorization: 'Bearer {{LIBRECHAT_FPL_SSO_TOKEN}}',
+        Authorization: 'Bearer {{LIBRECHAT_AUTH_TOKEN}}',
       },
     };
 
     expect(() => processMCPEnv({ options, user: createSafeUser(undefined) })).toThrow(
-      'FPL SSO token is unavailable; re-authentication is required to resolve {{LIBRECHAT_FPL_SSO_TOKEN}}',
+      'Request auth token is unavailable; re-authentication is required to resolve the configured request auth token placeholder',
     );
   });
 });

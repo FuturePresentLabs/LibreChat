@@ -145,7 +145,8 @@ async function resolveConfigServers(req) {
   try {
     const registry = getMCPServersRegistry();
     const appConfig = await getAppConfigForRequest(req);
-    return await registry.ensureConfigServers(appConfig?.mcpConfig || {});
+    const filteredMcpConfig = filterMcpConfigForTrustedAuth(appConfig?.mcpConfig || {}, req?.user);
+    return await registry.ensureConfigServers(filteredMcpConfig);
   } catch {
     logger.warn('[resolveConfigServers] Failed to resolve config servers; degrading to empty');
     return {};
@@ -161,7 +162,7 @@ async function resolveConfigServers(req) {
  */
 async function resolveMcpConfigNames(req) {
   const appConfig = await getAppConfigForRequest(req);
-  return Object.keys(appConfig?.mcpConfig || {});
+  return Object.keys(filterMcpConfigForTrustedAuth(appConfig?.mcpConfig || {}, req?.user));
 }
 
 /**
@@ -195,8 +196,9 @@ async function resolveMcpServerNames(req) {
 async function resolveMcpServerContext(req) {
   try {
     const appConfig = await getAppConfigForRequest(req);
+    const filteredMcpConfig = filterMcpConfigForTrustedAuth(appConfig?.mcpConfig || {}, req?.user);
     return await resolveMCPServerContext({
-      mcpConfig: appConfig?.mcpConfig || {},
+      mcpConfig: filteredMcpConfig,
       ensureConfigServers: (mcpConfig) => getMCPServersRegistry().ensureConfigServers(mcpConfig),
     });
   } catch (error) {
@@ -231,6 +233,75 @@ async function getAccessibleMcpServerNames(userId, role) {
     role != null ? { id: userId, role } : { id: userId },
   );
   return Object.keys(configs ?? {});
+}
+
+function normalizeRequiredAuthScopes(config) {
+  const requiredScopes = config?.auth?.requiredScopes;
+  if (typeof requiredScopes === 'string') {
+    return requiredScopes.trim().length > 0 ? [requiredScopes.trim()] : [];
+  }
+  if (!Array.isArray(requiredScopes)) {
+    return [];
+  }
+  return requiredScopes
+    .map((scope) => (typeof scope === 'string' ? scope.trim() : ''))
+    .filter(Boolean);
+}
+
+function parseScopeHeader(headerValue) {
+  if (typeof headerValue !== 'string' || headerValue.trim().length === 0) {
+    return [];
+  }
+  return headerValue
+    .split(/[\s,]+/)
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+}
+
+function getTrustedHeaderScopes(user, headerName) {
+  if (typeof headerName !== 'string' || headerName.trim().length === 0) {
+    return new Set();
+  }
+  const getTrustedHeader = user?.getTrustedHeader;
+  const headerValue =
+    typeof getTrustedHeader === 'function' ? getTrustedHeader(headerName.trim()) : undefined;
+  return new Set(parseScopeHeader(headerValue));
+}
+
+function userHasRequiredAuthScopes(user, config, requiredScopes) {
+  if (!requiredScopes.length) {
+    return true;
+  }
+  if (config?.auth?.type !== 'trusted_header') {
+    return false;
+  }
+  const userScopes = getTrustedHeaderScopes(user, config.auth.scopesHeader);
+  return requiredScopes.every((scope) => userScopes.has(scope));
+}
+
+function filterMcpConfigForTrustedAuth(mcpConfig, user) {
+  const entries = Object.entries(mcpConfig ?? {});
+  if (!entries.length) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    entries.filter(([serverName, config]) => {
+      const requiredScopes = normalizeRequiredAuthScopes(config);
+      if (userHasRequiredAuthScopes(user, config, requiredScopes)) {
+        return true;
+      }
+      logger.debug('[MCP][Auth] Hiding MCP server without required request scopes', {
+        serverName,
+        userId: user?.id,
+        authType: config?.auth?.type,
+        scopesHeader: config?.auth?.scopesHeader,
+        requiredScopes,
+        availableScopes: Array.from(getTrustedHeaderScopes(user, config?.auth?.scopesHeader)),
+      });
+      return false;
+    }),
+  );
 }
 
 /**
@@ -453,17 +524,18 @@ async function resolveCollisionAuditNames({ rawServerNames, accessibleServerName
 async function resolveAllMcpConfigs(userId, user) {
   const registry = getMCPServersRegistry();
   const appConfig = await getAppConfigForUser(userId, user);
+  const filteredMcpConfig = filterMcpConfigForTrustedAuth(appConfig?.mcpConfig || {}, user);
   let configServers = {};
   try {
-    configServers = await registry.ensureConfigServers(appConfig?.mcpConfig || {});
+    configServers = await registry.ensureConfigServers(filteredMcpConfig);
   } catch {
     logger.warn('[resolveAllMcpConfigs] Config server resolution failed; continuing without');
   }
-  if (user?.role) {
-    return await registry.getAllServerConfigs(userId, configServers, user.role);
-  }
+  const configs = user?.role
+    ? await registry.getAllServerConfigs(userId, configServers, user.role)
+    : await registry.getAllServerConfigs(userId, configServers);
 
-  return await registry.getAllServerConfigs(userId, configServers);
+  return filterMcpConfigForTrustedAuth(configs, user);
 }
 
 /**
@@ -1293,18 +1365,20 @@ function createToolInstance({
  * Get MCP setup data including config, connections, and OAuth servers.
  * Resolves config-source servers from admin Config overrides when tenant context is available.
  * @param {string} userId - The user ID
- * @param {{ role?: string, tenantId?: string }} [options] - Optional role/tenant context
+ * @param {{ role?: string, tenantId?: string, user?: object }} [options] - Optional role/tenant context
  * @returns {Object} Object containing mcpConfig, appConnections, userConnections, and oauthServers
  */
 async function getMCPSetupData(userId, options = {}) {
   const registry = getMCPServersRegistry();
-  const { role, tenantId } = options;
+  const { role, tenantId, user } = options;
 
   const appConfig = await getAppConfig({ role, tenantId, userId });
-  const configServers = await registry.ensureConfigServers(appConfig?.mcpConfig || {});
-  const mcpConfig = role
+  const filteredMcpConfig = filterMcpConfigForTrustedAuth(appConfig?.mcpConfig || {}, user);
+  const configServers = await registry.ensureConfigServers(filteredMcpConfig);
+  const allMcpConfig = role
     ? await registry.getAllServerConfigs(userId, configServers, role)
     : await registry.getAllServerConfigs(userId, configServers);
+  const mcpConfig = filterMcpConfigForTrustedAuth(allMcpConfig, user);
   const mcpManager = getMCPManager(userId);
   /** @type {Map<string, import('@librechat/api').MCPConnection>} */
   let appConnections = new Map();

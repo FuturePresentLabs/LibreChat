@@ -236,6 +236,48 @@ describe('resolveConfigServers', () => {
 
     expect(mockRegistry.ensureConfigServers).toHaveBeenCalledWith({});
   });
+
+  it('filters auth-gated config servers unless the trusted scope header has the required grant', async () => {
+    getAppConfig.mockResolvedValue({
+      mcpConfig: {
+        elmers: {
+          url: 'http://elmers/mcp',
+          auth: {
+            type: 'trusted_header',
+            scopesHeader: 'x-fpl-user-scopes',
+            requiredScopes: ['elmers.mcp'],
+          },
+        },
+        brave: { command: 'npx', args: [] },
+      },
+    });
+    mockRegistry.ensureConfigServers.mockResolvedValue({ brave: { name: 'brave' } });
+
+    await resolveConfigServers({
+      user: { id: 'u1', getTrustedHeader: jest.fn(() => '') },
+    });
+
+    expect(mockRegistry.ensureConfigServers).toHaveBeenCalledWith({
+      brave: { command: 'npx', args: [] },
+    });
+
+    mockRegistry.ensureConfigServers.mockClear();
+    await resolveConfigServers({
+      user: { id: 'u1', getTrustedHeader: jest.fn(() => 'elmers.mcp') },
+    });
+
+    expect(mockRegistry.ensureConfigServers).toHaveBeenCalledWith({
+      elmers: {
+        url: 'http://elmers/mcp',
+        auth: {
+          type: 'trusted_header',
+          scopesHeader: 'x-fpl-user-scopes',
+          requiredScopes: ['elmers.mcp'],
+        },
+      },
+      brave: { command: 'npx', args: [] },
+    });
+  });
 });
 
 describe('resolveMcpServerContext', () => {
@@ -277,6 +319,33 @@ describe('resolveMcpServerContext', () => {
       configServers: {},
       serverNames: ['srv'],
       rawServerNames: ['srv'],
+    });
+  });
+
+  it('does not include auth-gated server names without the required request grant', async () => {
+    getAppConfig.mockResolvedValue({
+      mcpConfig: {
+        comfyui: {
+          type: 'streamable-http',
+          url: 'http://comfy/mcp',
+          auth: {
+            type: 'trusted_header',
+            scopesHeader: 'x-fpl-user-scopes',
+            requiredScopes: 'mcp:image.workflow.admin',
+          },
+        },
+        brave: { command: 'npx', args: [] },
+      },
+    });
+    mockRegistry.ensureConfigServers.mockResolvedValue({});
+
+    const result = await resolveMcpServerContext({
+      user: { id: 'u1', getTrustedHeader: jest.fn(() => '') },
+    });
+
+    expect(result.serverNames).toEqual(['brave']);
+    expect(mockRegistry.ensureConfigServers).toHaveBeenCalledWith({
+      brave: { command: 'npx', args: [] },
     });
   });
 });
@@ -334,6 +403,45 @@ describe('resolveAllMcpConfigs', () => {
       },
       'user',
     );
+  });
+
+  it('filters auth-gated merged configs based on forwarded request grants', async () => {
+    getAppConfig.mockResolvedValue({ mcpConfig: {} });
+    mockRegistry.ensureConfigServers.mockResolvedValue({});
+    mockRegistry.getAllServerConfigs.mockResolvedValue({
+      elmers: {
+        name: 'elmers',
+        auth: {
+          type: 'trusted_header',
+          scopesHeader: 'x-fpl-user-scopes',
+          requiredScopes: ['elmers.mcp'],
+        },
+      },
+      brave: { name: 'brave' },
+    });
+
+    await expect(
+      resolveAllMcpConfigs('u1', { id: 'u1', getTrustedHeader: jest.fn(() => '') }),
+    ).resolves.toEqual({
+      brave: { name: 'brave' },
+    });
+
+    await expect(
+      resolveAllMcpConfigs('u1', {
+        id: 'u1',
+        getTrustedHeader: jest.fn(() => 'elmers.mcp'),
+      }),
+    ).resolves.toEqual({
+      elmers: {
+        name: 'elmers',
+        auth: {
+          type: 'trusted_header',
+          scopesHeader: 'x-fpl-user-scopes',
+          requiredScopes: ['elmers.mcp'],
+        },
+      },
+      brave: { name: 'brave' },
+    });
   });
 
   it('continues with empty configServers when ensureConfigServers fails', async () => {
