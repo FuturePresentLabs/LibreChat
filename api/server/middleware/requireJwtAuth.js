@@ -1,4 +1,5 @@
 const cookies = require('cookie');
+const openIdClient = require('openid-client');
 const passport = require('passport');
 const { logger } = require('@librechat/data-schemas');
 const {
@@ -6,10 +7,13 @@ const {
   tenantContextMiddleware,
   getAuthFailureReasonCategory,
   buildSafeAuthLogContext,
+  buildOpenIDRefreshParams,
   maybeRefreshCloudFrontAuthCookiesMiddleware,
   recordRumProxyRequest,
   getValidOpenIdReuseUserId,
+  shouldUseSecureCookie,
 } = require('@librechat/api');
+const { getOpenIdConfig } = require('~/strategies');
 
 const hasPassportStrategy = (strategy) =>
   typeof passport._strategy === 'function' && passport._strategy(strategy) != null;
@@ -18,6 +22,95 @@ const getAuthenticatedUserId = (user) => user?.id?.toString?.() ?? user?._id?.to
 const refreshCloudFrontCookies =
   maybeRefreshCloudFrontAuthCookiesMiddleware ?? ((_req, _res, next) => next());
 const ACCOUNT_DELETION_CODE = 'ACCOUNT_DELETION_IN_PROGRESS';
+
+function decodeJwtExpiry(token) {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+    return typeof payload.exp === 'number' ? payload.exp : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function setRecoveredOpenIDCookie(res, name, value) {
+  if (!value || !isEnabled(process.env.OPENID_ACCESS_TOKEN_COOKIE_FALLBACK)) {
+    return;
+  }
+  const expiryMs = Number(process.env.REFRESH_TOKEN_EXPIRY) || 7 * 24 * 60 * 60 * 1000;
+  res.cookie(name, value, {
+    expires: new Date(Date.now() + expiryMs),
+    httpOnly: true,
+    secure: shouldUseSecureCookie(),
+    sameSite: 'lax',
+  });
+}
+
+function applyOpenIDFederatedTokens(user, accessToken, idToken, refreshToken) {
+  if (!accessToken) {
+    return;
+  }
+  user.federatedTokens = {
+    access_token: accessToken,
+    id_token: idToken,
+    refresh_token: refreshToken,
+    expires_at: decodeJwtExpiry(accessToken),
+  };
+}
+
+function hydrateOpenIDFederatedTokens({ req, res, user, parsedCookies, openIdReuseUserId }) {
+  if (
+    !isEnabled(process.env.OPENID_REUSE_TOKENS) ||
+    !isEnabled(process.env.OPENID_ACCESS_TOKEN_COOKIE_FALLBACK) ||
+    getAuthenticatedUserId(user) !== openIdReuseUserId
+  ) {
+    return;
+  }
+
+  const sessionTokens = req.session?.openidTokens;
+  let accessToken = sessionTokens?.accessToken || parsedCookies.openid_access_token;
+  let idToken = sessionTokens?.idToken || parsedCookies.openid_id_token;
+  let refreshToken = sessionTokens?.refreshToken || parsedCookies.refreshToken;
+
+  if (!accessToken && refreshToken) {
+    return openIdClient
+      .refreshTokenGrant(
+        getOpenIdConfig(),
+        refreshToken,
+        buildOpenIDRefreshParams(),
+      )
+      .then((tokenset) => {
+        accessToken = tokenset.access_token || accessToken;
+        idToken = tokenset.id_token || idToken;
+        refreshToken = tokenset.refresh_token || refreshToken;
+
+        if (req.session) {
+          req.session.openidTokens = {
+            accessToken,
+            idToken,
+            refreshToken,
+            expiresAt: sessionTokens?.expiresAt,
+            lastRefreshedAt: Date.now(),
+          };
+        }
+        setRecoveredOpenIDCookie(res, 'openid_access_token', accessToken);
+        setRecoveredOpenIDCookie(res, 'openid_id_token', idToken);
+        setRecoveredOpenIDCookie(res, 'refreshToken', refreshToken);
+        applyOpenIDFederatedTokens(user, accessToken, idToken, refreshToken);
+        logger.debug('[requireJwtAuth] recovered OpenID access token for request context', {
+          has_access_token: Boolean(accessToken),
+          has_id_token: Boolean(idToken),
+          has_refresh_token: Boolean(refreshToken),
+        });
+      })
+      .catch((error) => {
+        logger.warn('[requireJwtAuth] OpenID access token recovery failed', {
+          message: error?.message,
+        });
+      });
+  }
+
+  applyOpenIDFederatedTokens(user, accessToken, idToken, refreshToken);
+}
 
 const getAuthTokenSource = (req) => {
   const authorization = req.headers.authorization;
@@ -41,6 +134,7 @@ const getAuthStrategies = (req) => {
     openidReuseEnabled,
     openidJwtAvailable,
     openIdReuseUserId,
+    parsedCookies,
     strategies: useOpenIdJwt ? ['openidJwt', 'jwt'] : ['jwt'],
   };
 };
@@ -80,6 +174,7 @@ const requireJwtAuth = (req, res, next) => {
     openidReuseEnabled,
     openidJwtAvailable,
     openIdReuseUserId,
+    parsedCookies,
     strategies,
   } = getAuthStrategies(req);
   const authLogState = {
@@ -182,15 +277,33 @@ const requireJwtAuth = (req, res, next) => {
         logAuthenticationFailure({ strategy, info, status: 401, err });
         return res.status(401).json({ message: 'Unauthorized' });
       }
-      req.user = user;
-      req.authStrategy = strategy;
-      logFallbackSuccess(strategy);
-      tenantContextMiddleware(req, res, (tenantErr) => {
-        if (tenantErr) {
-          return next(tenantErr);
+      const completeAuthentication = () => {
+        req.user = user;
+        req.authStrategy = strategy;
+        logFallbackSuccess(strategy);
+        tenantContextMiddleware(req, res, (tenantErr) => {
+          if (tenantErr) {
+            return next(tenantErr);
+          }
+          refreshCloudFrontCookies(req, res, next);
+        });
+      };
+
+      if (tokenProvider === 'openid') {
+        const hydration = hydrateOpenIDFederatedTokens({
+          req,
+          res,
+          user,
+          parsedCookies,
+          openIdReuseUserId,
+        });
+        if (hydration?.then) {
+          hydration.then(completeAuthentication).catch(next);
+          return;
         }
-        refreshCloudFrontCookies(req, res, next);
-      });
+      }
+
+      completeAuthentication();
     })(req, res, next);
   };
 

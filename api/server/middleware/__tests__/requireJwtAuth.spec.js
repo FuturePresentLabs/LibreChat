@@ -15,6 +15,14 @@ const jwt = require('jsonwebtoken');
 let mockPassportError = null;
 let mockRegisteredStrategies = new Set(['jwt']);
 
+jest.mock('openid-client', () => ({
+  refreshTokenGrant: jest.fn(),
+}));
+
+jest.mock('~/strategies', () => ({
+  getOpenIdConfig: jest.fn(() => ({ issuer: 'https://issuer.example.com' })),
+}));
+
 jest.mock('passport', () => ({
   _strategy: jest.fn((strategy) => (mockRegisteredStrategies.has(strategy) ? {} : undefined)),
   authenticate: jest.fn((strategy, _options, callback) => {
@@ -71,6 +79,7 @@ jest.mock('@librechat/api', () => {
     recordRumProxyRequest: jest.fn(),
     getAuthFailureReasonCategory: actualApi.getAuthFailureReasonCategory,
     buildSafeAuthLogContext: actualApi.buildSafeAuthLogContext,
+    buildOpenIDRefreshParams: jest.fn(() => ({ scope: 'openid profile email' })),
     getValidOpenIdReuseUserId: (token) => {
       if (!token || !process.env.JWT_REFRESH_SECRET) {
         return null;
@@ -84,6 +93,7 @@ jest.mock('@librechat/api', () => {
         return null;
       }
     },
+    shouldUseSecureCookie: jest.fn(() => false),
     maybeRefreshCloudFrontAuthCookiesMiddleware: jest.fn((req, res, next) => next()),
     tenantContextMiddleware: (req, res, next) => {
       const context = {
@@ -106,9 +116,12 @@ const { requireRumProxyAuth } = requireJwtAuth;
 const { getTenantId, getUserId, logger } = require('@librechat/data-schemas');
 const {
   isEnabled,
+  buildOpenIDRefreshParams,
   maybeRefreshCloudFrontAuthCookiesMiddleware,
   recordRumProxyRequest,
 } = require('@librechat/api');
+const openIdClient = require('openid-client');
+const { getOpenIdConfig } = require('~/strategies');
 const passport = require('passport');
 
 const jwtSecret = 'test-refresh-secret';
@@ -123,6 +136,7 @@ function signedOpenIdUserCookie(userId = 'user-openid') {
 
 function mockRes() {
   return {
+    cookie: jest.fn(),
     status: jest.fn().mockReturnThis(),
     json: jest.fn().mockReturnThis(),
     end: jest.fn().mockReturnThis(),
@@ -159,6 +173,9 @@ describe('requireJwtAuth tenant context chaining', () => {
     logger.warn.mockClear();
     logger.error.mockClear();
     recordRumProxyRequest.mockClear();
+    openIdClient.refreshTokenGrant.mockReset();
+    getOpenIdConfig.mockClear();
+    buildOpenIDRefreshParams.mockClear();
     passport.authenticate.mockClear();
     passport._strategy.mockClear();
     if (originalJwtSecret === undefined) {
@@ -341,6 +358,72 @@ describe('requireJwtAuth tenant context chaining', () => {
     );
     expect(JSON.stringify(logger.debug.mock.calls)).not.toContain('jwt expired');
     expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('hydrates OpenID federated tokens when local JWT fallback succeeds', async () => {
+    isEnabled.mockReturnValue(true);
+    mockRegisteredStrategies.add('openidJwt');
+    openIdClient.refreshTokenGrant.mockResolvedValue({
+      access_token: 'fresh-openid-access',
+      id_token: 'fresh-openid-id',
+      refresh_token: 'fresh-openid-refresh',
+    });
+    const req = mockReq(undefined, {
+      requestId: 'req-openid-token-recovery',
+      method: 'POST',
+      path: '/api/agents',
+      headers: {
+        authorization: 'Bearer stale-app-token',
+        cookie: `token_provider=openid; openid_user_id=${signedOpenIdUserCookie('user-jwt')}; refreshToken=stored-openid-refresh`,
+      },
+      session: {},
+      _mockStrategies: {
+        openidJwt: {
+          user: false,
+          info: { message: 'jwt expired', name: 'TokenExpiredError' },
+          status: 401,
+        },
+        jwt: {
+          user: { id: 'user-jwt', tenantId: 'tenant-jwt', role: 'user', provider: 'openid' },
+        },
+      },
+    });
+    const res = mockRes();
+    const next = jest.fn();
+
+    await new Promise((resolve) => {
+      requireJwtAuth(req, res, (error) => {
+        next(error);
+        resolve(error);
+      });
+    });
+
+    expect(next).toHaveBeenCalledWith(undefined);
+    expect(req.authStrategy).toBe('jwt');
+    expect(openIdClient.refreshTokenGrant).toHaveBeenCalledWith(
+      getOpenIdConfig(),
+      'stored-openid-refresh',
+      { scope: 'openid profile email' },
+    );
+    expect(req.user.federatedTokens).toEqual({
+      access_token: 'fresh-openid-access',
+      id_token: 'fresh-openid-id',
+      refresh_token: 'fresh-openid-refresh',
+      expires_at: undefined,
+    });
+    expect(req.session.openidTokens).toEqual(
+      expect.objectContaining({
+        accessToken: 'fresh-openid-access',
+        idToken: 'fresh-openid-id',
+        refreshToken: 'fresh-openid-refresh',
+        lastRefreshedAt: expect.any(Number),
+      }),
+    );
+    expect(res.cookie).toHaveBeenCalledWith(
+      'openid_access_token',
+      'fresh-openid-access',
+      expect.objectContaining({ httpOnly: true, sameSite: 'lax' }),
+    );
   });
 
   it('does not let malformed Passport info break JWT fallback logging', () => {
