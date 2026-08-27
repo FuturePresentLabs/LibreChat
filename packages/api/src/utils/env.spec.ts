@@ -1,4 +1,5 @@
 import { Types } from 'mongoose';
+import { createHmac } from 'node:crypto';
 import { TokenExchangeMethodEnum } from 'librechat-data-provider';
 import type { MCPOptions } from 'librechat-data-provider';
 import type { IUser } from '@librechat/data-schemas';
@@ -2334,6 +2335,58 @@ describe('resolveHeaders stripUnresolved', () => {
 
     expect(result['X-OpenID-Id']).toBe('{{LIBRECHAT_USER_OPENIDID}}');
     expect(result['X-User-Id']).toBe('{{LIBRECHAT_USER_ID}}');
+  });
+});
+
+describe('resolveHeaders signed actor placeholders', () => {
+  const originalActorSecret = process.env.LIBRECHAT_ACTOR_HMAC_SECRET;
+
+  afterEach(() => {
+    if (originalActorSecret === undefined) {
+      delete process.env.LIBRECHAT_ACTOR_HMAC_SECRET;
+    } else {
+      process.env.LIBRECHAT_ACTOR_HMAC_SECRET = originalActorSecret;
+    }
+    jest.useRealTimers();
+  });
+
+  it('signs one per-request actor payload for paired headers', () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-27T12:00:00Z'));
+    process.env.LIBRECHAT_ACTOR_HMAC_SECRET = 'test-secret';
+    const user = createSafeUser(createTestUser({ id: 'user-123', email: 'avery@fpl.dev' }));
+
+    const result = resolveHeaders({
+      headers: {
+        'X-FPL-Actor': '{{LIBRECHAT_SIGNED_ACTOR}}',
+        'X-FPL-Actor-Signature': '{{LIBRECHAT_SIGNED_ACTOR_SIGNATURE}}',
+      },
+      user,
+    });
+
+    const expectedSignature = createHmac('sha256', 'test-secret')
+      .update(result['X-FPL-Actor'])
+      .digest('base64url');
+    expect(result['X-FPL-Actor-Signature']).toBe(`v1=${expectedSignature}`);
+
+    const payload = JSON.parse(Buffer.from(result['X-FPL-Actor'], 'base64url').toString('utf8'));
+    expect(payload).toMatchObject({
+      sub: 'user-123',
+      email: 'avery@fpl.dev',
+      source: 'librechat',
+      iat: 1787832000,
+      exp: 1787832300,
+    });
+  });
+
+  it('throws when signed actor headers are configured without a signing secret', () => {
+    delete process.env.LIBRECHAT_ACTOR_HMAC_SECRET;
+
+    expect(() =>
+      resolveHeaders({
+        headers: { 'X-FPL-Actor': '{{LIBRECHAT_SIGNED_ACTOR}}' },
+        user: createSafeUser(createTestUser()),
+      }),
+    ).toThrow('Signed actor placeholder is configured but no actor could be signed');
   });
 });
 

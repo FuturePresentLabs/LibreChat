@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { logger } from '@librechat/data-schemas';
 import { extractEnvVariable } from 'librechat-data-provider';
 import type { MCPOptions } from 'librechat-data-provider';
@@ -54,6 +55,10 @@ const ALLOWED_USER_FIELDS = [
 type AllowedUserField = (typeof ALLOWED_USER_FIELDS)[number];
 type SafeUser = Pick<IUser, AllowedUserField>;
 type RequestAuthUser = { requestAuthToken?: string; fplSsoToken?: string };
+type SignedActorVars = Record<
+  'LIBRECHAT_SIGNED_ACTOR' | 'LIBRECHAT_SIGNED_ACTOR_SIGNATURE',
+  string
+>;
 
 /**
  * Encodes a string value to be safe for HTTP headers.
@@ -170,6 +175,8 @@ export const ALLOWED_BODY_FIELDS = ['conversationId', 'parentMessageId', 'messag
 const OPENID_PLACEHOLDER_NAMES = `LIBRECHAT_OPENID_(?:${OPENID_TOKEN_FIELDS.join('|')}|TOKEN)`;
 const AUTH_TOKEN_PLACEHOLDER = '{{LIBRECHAT_AUTH_TOKEN}}';
 const FPL_SSO_TOKEN_PLACEHOLDER = '{{LIBRECHAT_FPL_SSO_TOKEN}}';
+const SIGNED_ACTOR_PLACEHOLDER = '{{LIBRECHAT_SIGNED_ACTOR}}';
+const SIGNED_ACTOR_SIGNATURE_PLACEHOLDER = '{{LIBRECHAT_SIGNED_ACTOR_SIGNATURE}}';
 
 /**
  * Matches every placeholder this module knows how to resolve: the enumerated
@@ -185,6 +192,8 @@ const RESOLVABLE_PLACEHOLDER_PATTERN = new RegExp(
     OPENID_PLACEHOLDER_NAMES,
     'LIBRECHAT_AUTH_TOKEN',
     'LIBRECHAT_FPL_SSO_TOKEN',
+    'LIBRECHAT_SIGNED_ACTOR',
+    'LIBRECHAT_SIGNED_ACTOR_SIGNATURE',
   ]
     .map((names) => `\\{\\{(?:${names})\\}\\}`)
     .join('|'),
@@ -321,6 +330,61 @@ function processRequestAuthPlaceholder(
     .replace(new RegExp(FPL_SSO_TOKEN_PLACEHOLDER, 'g'), requestAuthToken);
 }
 
+function base64Url(input: Buffer | string): string {
+  return Buffer.from(input).toString('base64url');
+}
+
+function createSignedActorVars(user?: Partial<IUser>): SignedActorVars | undefined {
+  const secret = process.env.LIBRECHAT_ACTOR_HMAC_SECRET ?? process.env.FPL_ACTOR_HMAC_SECRET;
+  if (typeof secret !== 'string' || secret.length === 0) {
+    return undefined;
+  }
+
+  const sub = user?.id == null || user.id === '' ? undefined : String(user.id);
+  const email = user?.email == null || user.email === '' ? undefined : String(user.email);
+  if (!sub && !email) {
+    return undefined;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const payload = base64Url(
+    JSON.stringify({
+      sub,
+      email,
+      source: 'librechat',
+      iat: now,
+      exp: now + 300,
+    }),
+  );
+  const signature = createHmac('sha256', secret).update(payload).digest('base64url');
+  return {
+    LIBRECHAT_SIGNED_ACTOR: payload,
+    LIBRECHAT_SIGNED_ACTOR_SIGNATURE: `v1=${signature}`,
+  };
+}
+
+function processSignedActorPlaceholders(value: string, signedActorVars?: SignedActorVars): string {
+  const needsActor =
+    value.includes(SIGNED_ACTOR_PLACEHOLDER) || value.includes(SIGNED_ACTOR_SIGNATURE_PLACEHOLDER);
+  if (!needsActor) {
+    return value;
+  }
+  if (!signedActorVars) {
+    logger.warn(
+      `Signed actor placeholder is configured but no actor could be signed for the current request`,
+    );
+    throw new Error(
+      `Signed actor placeholder is configured but no actor could be signed for the current request`,
+    );
+  }
+  return value
+    .replace(new RegExp(SIGNED_ACTOR_PLACEHOLDER, 'g'), signedActorVars.LIBRECHAT_SIGNED_ACTOR)
+    .replace(
+      new RegExp(SIGNED_ACTOR_SIGNATURE_PLACEHOLDER, 'g'),
+      signedActorVars.LIBRECHAT_SIGNED_ACTOR_SIGNATURE,
+    );
+}
+
 /**
  * Processes a single string value by replacing various types of placeholders
  *
@@ -338,12 +402,14 @@ function processSingleValue({
   body = undefined,
   isHeader = false,
   dbSourced = false,
+  signedActorVars,
 }: {
   originalValue: string;
   customUserVars?: Record<string, string>;
   user?: Partial<IUser>;
   body?: RequestBody;
   isHeader?: boolean;
+  signedActorVars?: SignedActorVars;
   /** When true, only resolve customUserVars — skip env vars, user/OpenID/body placeholders */
   dbSourced?: boolean;
 }): string {
@@ -378,6 +444,7 @@ function processSingleValue({
     return value;
   }
 
+  value = processSignedActorPlaceholders(value, signedActorVars);
   value = processUserPlaceholders(value, user, isHeader);
   value = processRequestAuthPlaceholder(
     value,
@@ -453,6 +520,7 @@ export function processMCPEnv(params: {
   const dbSourced = params.dbSourced ?? !!options.dbId;
 
   const newObj: MCPOptions = structuredClone(options);
+  const signedActorVars = createSignedActorVars(user);
 
   // Apply admin-provided API key to headers at runtime
   // Note: User-provided keys use {{MCP_API_KEY}} placeholder in headers,
@@ -495,6 +563,7 @@ export function processMCPEnv(params: {
         dbSourced,
         originalValue,
         customUserVars,
+        signedActorVars,
       });
     }
     newObj.env = processedEnv;
@@ -504,7 +573,14 @@ export function processMCPEnv(params: {
     const processedArgs: string[] = [];
     for (const originalValue of newObj.args) {
       processedArgs.push(
-        processSingleValue({ originalValue, customUserVars, user, body, dbSourced }),
+        processSingleValue({
+          originalValue,
+          customUserVars,
+          user,
+          body,
+          dbSourced,
+          signedActorVars,
+        }),
       );
     }
     newObj.args = processedArgs;
@@ -522,6 +598,7 @@ export function processMCPEnv(params: {
         originalValue,
         customUserVars,
         isHeader: true, // Important: Enable header encoding
+        signedActorVars,
       });
     }
     newObj.headers = processedHeaders;
@@ -538,6 +615,7 @@ export function processMCPEnv(params: {
         originalValue,
         customUserVars,
         isHeader: true,
+        signedActorVars,
       });
     }
     newObj.oauth_headers = processedOAuthHeaders;
@@ -551,6 +629,7 @@ export function processMCPEnv(params: {
       dbSourced,
       customUserVars,
       originalValue: newObj.url,
+      signedActorVars,
     });
   }
 
@@ -572,6 +651,7 @@ export function processMCPEnv(params: {
           dbSourced,
           originalValue,
           customUserVars,
+          signedActorVars,
         });
       } else {
         processedOAuth[key] = originalValue;
@@ -677,6 +757,7 @@ export function resolveHeaders(options?: {
   const inputHeaders = headers ?? {};
 
   const resolvedHeaders: Record<string, string> = { ...inputHeaders };
+  const signedActorVars = createSignedActorVars(user as Partial<IUser> | undefined);
 
   if (inputHeaders && typeof inputHeaders === 'object' && !Array.isArray(inputHeaders)) {
     Object.keys(inputHeaders).forEach((key) => {
@@ -686,6 +767,7 @@ export function resolveHeaders(options?: {
         user: user as IUser,
         body,
         isHeader: true, // Important: Enable header encoding
+        signedActorVars,
       });
       if (!stripUnresolved) {
         resolvedHeaders[key] = processed;
