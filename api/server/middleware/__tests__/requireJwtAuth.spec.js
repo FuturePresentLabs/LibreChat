@@ -134,6 +134,11 @@ function signedOpenIdUserCookie(userId = 'user-openid') {
   return jwt.sign({ id: userId }, jwtSecret);
 }
 
+function unsignedJwtWithExp(exp) {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({ exp })}.`;
+}
+
 function mockRes() {
   return {
     cookie: jest.fn(),
@@ -422,6 +427,69 @@ describe('requireJwtAuth tenant context chaining', () => {
     expect(res.cookie).toHaveBeenCalledWith(
       'openid_access_token',
       'fresh-openid-access',
+      expect.objectContaining({ httpOnly: true, sameSite: 'lax' }),
+    );
+  });
+
+  it('refreshes an expired OpenID access token during local JWT fallback', async () => {
+    isEnabled.mockReturnValue(true);
+    mockRegisteredStrategies.add('openidJwt');
+    openIdClient.refreshTokenGrant.mockResolvedValue({
+      access_token: 'replacement-openid-access',
+      id_token: 'replacement-openid-id',
+      refresh_token: 'replacement-openid-refresh',
+    });
+    const expiredAccessToken = unsignedJwtWithExp(Math.floor(Date.now() / 1000) - 60);
+    const req = mockReq(undefined, {
+      requestId: 'req-openid-stale-token-recovery',
+      method: 'POST',
+      path: '/api/mcp/comfyui/reinitialize',
+      headers: {
+        authorization: 'Bearer stale-app-token',
+        cookie: [
+          'token_provider=openid',
+          `openid_user_id=${signedOpenIdUserCookie('user-jwt')}`,
+          `openid_access_token=${expiredAccessToken}`,
+          'refreshToken=stored-openid-refresh',
+        ].join('; '),
+      },
+      session: {},
+      _mockStrategies: {
+        openidJwt: {
+          user: false,
+          info: { message: 'jwt expired', name: 'TokenExpiredError' },
+          status: 401,
+        },
+        jwt: {
+          user: { id: 'user-jwt', tenantId: 'tenant-jwt', role: 'user', provider: 'openid' },
+        },
+      },
+    });
+    const res = mockRes();
+    const next = jest.fn();
+
+    await new Promise((resolve) => {
+      requireJwtAuth(req, res, (error) => {
+        next(error);
+        resolve(error);
+      });
+    });
+
+    expect(next).toHaveBeenCalledWith(undefined);
+    expect(openIdClient.refreshTokenGrant).toHaveBeenCalledWith(
+      getOpenIdConfig(),
+      'stored-openid-refresh',
+      { scope: 'openid profile email' },
+    );
+    expect(req.user.federatedTokens).toEqual({
+      access_token: 'replacement-openid-access',
+      id_token: 'replacement-openid-id',
+      refresh_token: 'replacement-openid-refresh',
+      expires_at: undefined,
+    });
+    expect(res.cookie).toHaveBeenCalledWith(
+      'openid_access_token',
+      'replacement-openid-access',
       expect.objectContaining({ httpOnly: true, sameSite: 'lax' }),
     );
   });

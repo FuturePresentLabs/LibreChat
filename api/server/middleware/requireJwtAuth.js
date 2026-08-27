@@ -32,6 +32,17 @@ function decodeJwtExpiry(token) {
   }
 }
 
+function isAccessTokenRefreshNeeded(accessToken) {
+  if (!accessToken) {
+    return true;
+  }
+  const expiresAt = decodeJwtExpiry(accessToken);
+  if (expiresAt == null) {
+    return false;
+  }
+  return Math.floor(Date.now() / 1000) >= expiresAt - 30;
+}
+
 function setRecoveredOpenIDCookie(res, name, value) {
   if (!value || !isEnabled(process.env.OPENID_ACCESS_TOKEN_COOKIE_FALLBACK)) {
     return;
@@ -71,7 +82,7 @@ function hydrateOpenIDFederatedTokens({ req, res, user, parsedCookies, openIdReu
   let idToken = sessionTokens?.idToken || parsedCookies.openid_id_token;
   let refreshToken = sessionTokens?.refreshToken || parsedCookies.refreshToken;
 
-  if (!accessToken && refreshToken) {
+  if (refreshToken && isAccessTokenRefreshNeeded(accessToken)) {
     return openIdClient
       .refreshTokenGrant(
         getOpenIdConfig(),
