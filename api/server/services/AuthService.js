@@ -800,6 +800,14 @@ const setOpenIDAuthTokens = (
         expiresAt: expirationDate.getTime(),
         lastRefreshedAt: Date.now(),
       };
+      if (isEnabled(process.env.OPENID_ACCESS_TOKEN_COOKIE_FALLBACK)) {
+        res.cookie('openid_access_token', tokenset.access_token, {
+          expires: expirationDate,
+          httpOnly: true,
+          secure: shouldUseSecureCookie(),
+          sameSite: 'lax',
+        });
+      }
     } else {
       logger.warn('[setOpenIDAuthTokens] No session available, falling back to cookies');
       res.cookie('openid_access_token', tokenset.access_token, {

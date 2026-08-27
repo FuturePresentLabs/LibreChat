@@ -231,6 +231,29 @@ describe('setOpenIDAuthTokens', () => {
       expect(req.session.openidTokens.lastRefreshedAt).toEqual(expect.any(Number));
     });
 
+    it('should set access_token cookie in session path when fallback is enabled', () => {
+      process.env.OPENID_ACCESS_TOKEN_COOKIE_FALLBACK = 'true';
+      const tokenset = {
+        id_token: 'the-id-token',
+        access_token: 'the-access-token',
+        refresh_token: 'the-refresh-token',
+      };
+      const req = mockRequest();
+      const res = mockResponse();
+
+      setOpenIDAuthTokens(tokenset, req, res, 'user-123');
+
+      expect(req.session.openidTokens.accessToken).toBe('the-access-token');
+      expect(res.cookie).toHaveBeenCalledWith(
+        'openid_access_token',
+        'the-access-token',
+        expect.objectContaining({
+          httpOnly: true,
+          sameSite: 'lax',
+        }),
+      );
+    });
+
     it('should return the existing unexpired session id_token when refresh omits one', () => {
       const existingIdToken = jwt.sign(
         { sub: 'user-123', exp: Math.floor(Date.now() / 1000) + 3600 },
