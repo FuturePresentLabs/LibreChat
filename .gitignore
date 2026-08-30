@@ -189,3 +189,11 @@ CLAUDE.md
 .gsd
 codedb.snapshot
 scripts/activity-labels/results/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+.beads-credential-key
+.beads/proxieddb/
+
+# Beads task tracking (ephemeral)
+.beads/
