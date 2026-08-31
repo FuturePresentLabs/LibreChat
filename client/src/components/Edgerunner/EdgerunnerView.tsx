@@ -14,7 +14,6 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import {
-  Alert,
   Button,
   Select,
   SelectItem,
@@ -90,6 +89,7 @@ type TranscriptItem = {
 
 const DEFAULT_REPO_VALUE = '__manual__';
 const DEFAULT_PROFILE_VALUE = '__default__';
+const NEW_SESSION_VALUE = '__new_session__';
 
 const emptyDraft: DraftState = {
   repo: '',
@@ -262,14 +262,13 @@ function StateBadge({ status }: { status?: string }) {
   );
 }
 
-function SidebarSessions({
+function SessionSelect({
   sessions,
   selectedId,
   loading,
   unavailable,
   onSelect,
   onNew,
-  onRefresh,
 }: {
   sessions: EdgerunnerSession[];
   selectedId?: string;
@@ -277,100 +276,50 @@ function SidebarSessions({
   unavailable: boolean;
   onSelect: (sessionId: string) => void;
   onNew: () => void;
-  onRefresh: () => void;
 }) {
   const localize = useLocalize();
 
+  if (loading) {
+    return <Skeleton className="h-9 w-32 sm:w-44" aria-hidden="true" />;
+  }
+
+  if (unavailable || sessions.length === 0) {
+    return null;
+  }
+
   return (
-    <aside className="flex min-h-0 w-full flex-col border-b border-border-light bg-surface-secondary md:w-80 md:border-b-0 md:border-r">
-      <div className="flex h-14 shrink-0 items-center justify-between border-b border-border-light px-3">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-text-primary">
-            {localize('com_edgerunner_sessions')}
-          </div>
-          <div className="text-xs text-text-tertiary">
-            {localize('com_edgerunner_recent_sessions', { count: sessions.length })}
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={localize('com_edgerunner_new_session')}
-            onClick={onNew}
-          >
-            <Plus className="size-4" aria-hidden="true" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={localize('com_ui_refresh')}
-            onClick={onRefresh}
-          >
-            <RefreshCw className="size-4" aria-hidden="true" />
-          </Button>
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto">
-        {loading ? (
-          <div className="space-y-2 p-3" aria-hidden="true">
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-16 w-full" />
-          </div>
-        ) : null}
-        {!loading && unavailable ? (
-          <div className="p-3">
-            <Alert variant="warning">{localize('com_edgerunner_unavailable')}</Alert>
-          </div>
-        ) : null}
-        {!loading && !unavailable && sessions.length === 0 ? (
-          <div className="flex min-h-40 items-center justify-center px-4 text-center text-sm text-text-secondary">
-            {localize('com_edgerunner_no_sessions')}
-          </div>
-        ) : null}
-        {!loading && !unavailable && sessions.length > 0 ? (
-          <div className="p-2">
-            {sessions.map((session) => {
-              const selected = session.id === selectedId;
-              return (
-                <button
-                  key={session.id}
-                  type="button"
-                  className={cn(
-                    'flex w-full min-w-0 flex-col gap-1 rounded-lg px-3 py-2.5 text-left transition-colors',
-                    'hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-text-primary',
-                    selected && 'bg-surface-active-alt',
-                  )}
-                  aria-current={selected ? 'true' : undefined}
-                  onClick={() => onSelect(session.id)}
-                >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <TerminalSquare
-                      className="size-4 shrink-0 text-text-secondary"
-                      aria-hidden="true"
-                    />
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">
-                      {shortSessionTitle(session)}
-                    </span>
-                  </div>
-                  <div className="flex min-w-0 items-center justify-between gap-2">
-                    <span className="truncate text-xs text-text-secondary">
-                      {repoDisplayName(session.repo_url) || session.id}
-                    </span>
-                    <span className="shrink-0 text-xs tabular-nums text-text-tertiary">
-                      {formatTimestamp(session.updated_at ?? session.created_at)}
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
-      </div>
-    </aside>
+    <Select
+      value={selectedId || NEW_SESSION_VALUE}
+      onValueChange={(next) => {
+        if (next === NEW_SESSION_VALUE) {
+          onNew();
+          return;
+        }
+        onSelect(next);
+      }}
+    >
+      <SelectTrigger
+        className="h-9 w-32 min-w-0 border-border-light bg-surface-primary text-xs shadow-none sm:w-52 lg:w-64"
+        aria-label={localize('com_edgerunner_sessions')}
+      >
+        <SelectValue placeholder={localize('com_edgerunner_sessions')} />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={NEW_SESSION_VALUE}>{localize('com_edgerunner_new_session')}</SelectItem>
+        {sessions.map((session) => (
+          <SelectItem key={session.id} value={session.id}>
+            <span className="flex min-w-0 flex-col py-1">
+              <span className="truncate text-sm">{shortSessionTitle(session)}</span>
+              <span className="truncate text-xs text-text-tertiary">
+                {formatTimestamp(session.updated_at ?? session.created_at) ||
+                  repoDisplayName(session.repo_url) ||
+                  session.id}
+              </span>
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -827,7 +776,7 @@ function SessionControls({ sessionId }: { sessionId: string }) {
   );
 
   return (
-    <div className="flex shrink-0 items-center gap-1">
+    <div className="hidden shrink-0 items-center gap-1 md:flex">
       <Button
         type="button"
         variant="ghost"
@@ -1122,11 +1071,23 @@ function Inspector({
 
 function ChatHeader({
   session,
+  sessions,
+  selectedSessionId,
+  sessionsLoading,
+  unavailable,
   profile,
+  onSelectSession,
+  onNewSession,
   onRefresh,
 }: {
   session?: EdgerunnerSession;
+  sessions: EdgerunnerSession[];
+  selectedSessionId?: string;
+  sessionsLoading: boolean;
+  unavailable: boolean;
   profile: string;
+  onSelectSession: (sessionId: string) => void;
+  onNewSession: () => void;
   onRefresh: () => void;
 }) {
   const localize = useLocalize();
@@ -1154,6 +1115,23 @@ function ChatHeader({
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
+        <SessionSelect
+          sessions={sessions}
+          selectedId={selectedSessionId}
+          loading={sessionsLoading}
+          unavailable={unavailable}
+          onSelect={onSelectSession}
+          onNew={onNewSession}
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={localize('com_edgerunner_new_session')}
+          onClick={onNewSession}
+        >
+          <Plus className="size-4" aria-hidden="true" />
+        </Button>
         {session ? <SessionControls sessionId={session.id} /> : null}
         <Button
           type="button"
@@ -1171,18 +1149,28 @@ function ChatHeader({
 
 function SessionWorkspace({
   sessionId,
+  sessions,
+  sessionsLoading,
+  unavailable,
   profiles,
   repositories,
   repositoriesLoading,
   repositoriesConfigured,
+  onSelectSession,
+  onNewSession,
   onCreated,
   onRefreshSessions,
 }: {
   sessionId?: string;
+  sessions: EdgerunnerSession[];
+  sessionsLoading: boolean;
+  unavailable: boolean;
   profiles: EdgerunnerProfile[];
   repositories: EdgerunnerRepository[];
   repositoriesLoading: boolean;
   repositoriesConfigured: boolean;
+  onSelectSession: (sessionId: string) => void;
+  onNewSession: () => void;
   onCreated: (sessionId: string) => void;
   onRefreshSessions: () => void;
 }) {
@@ -1218,7 +1206,16 @@ function SessionWorkspace({
   if (sessionId && !sessionQuery.isLoading && !session) {
     return (
       <main className="flex min-w-0 flex-1 flex-col bg-surface-primary">
-        <ChatHeader profile={profileLabel(profiles, '')} onRefresh={refetchAll} />
+        <ChatHeader
+          sessions={sessions}
+          selectedSessionId={sessionId}
+          sessionsLoading={sessionsLoading}
+          unavailable={unavailable}
+          profile={profileLabel(profiles, '')}
+          onSelectSession={onSelectSession}
+          onNewSession={onNewSession}
+          onRefresh={refetchAll}
+        />
         <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-text-secondary">
           {localize('com_edgerunner_session_not_found')}
         </div>
@@ -1231,10 +1228,16 @@ function SessionWorkspace({
       <div className="flex min-w-0 flex-1 flex-col">
         <ChatHeader
           session={session}
+          sessions={sessions}
+          selectedSessionId={sessionId}
+          sessionsLoading={sessionsLoading}
+          unavailable={unavailable}
           profile={profileLabel(
             profiles,
             String(session?.labels?.['fpl.edgerunner.profile'] ?? ''),
           )}
+          onSelectSession={onSelectSession}
+          onNewSession={onNewSession}
           onRefresh={refetchAll}
         />
         <div className="min-h-0 flex-1 overflow-auto bg-surface-primary">
@@ -1289,30 +1292,24 @@ export default function EdgerunnerView() {
   }, [isSmallScreen, selectedSessionId, sessions]);
 
   return (
-    <div className="flex h-dvh min-w-0 flex-col bg-surface-primary text-text-primary md:flex-row">
-      <SidebarSessions
-        sessions={sessions}
-        selectedId={selectedSessionId}
-        loading={configQuery.isLoading || sessionsQuery.isLoading}
-        unavailable={enabled === false || healthQuery.isError || sessionsQuery.isError}
-        onSelect={setSelectedSessionId}
-        onNew={() => setSelectedSessionId(undefined)}
-        onRefresh={() => {
-          void configQuery.refetch();
-          void healthQuery.refetch();
-          void sessionsQuery.refetch();
-          void repositoriesQuery.refetch();
-        }}
-      />
+    <div className="flex h-dvh min-w-0 flex-col bg-surface-primary text-text-primary">
       <SessionWorkspace
         sessionId={selectedSessionId}
+        sessions={sessions}
+        sessionsLoading={configQuery.isLoading || sessionsQuery.isLoading}
+        unavailable={enabled === false || healthQuery.isError || sessionsQuery.isError}
         profiles={profiles}
         repositories={repositories}
         repositoriesLoading={repositoriesQuery.isLoading}
         repositoriesConfigured={repositoriesConfigured}
+        onSelectSession={setSelectedSessionId}
+        onNewSession={() => setSelectedSessionId(undefined)}
         onCreated={setSelectedSessionId}
         onRefreshSessions={() => {
+          void configQuery.refetch();
+          void healthQuery.refetch();
           void sessionsQuery.refetch();
+          void repositoriesQuery.refetch();
         }}
       />
     </div>
