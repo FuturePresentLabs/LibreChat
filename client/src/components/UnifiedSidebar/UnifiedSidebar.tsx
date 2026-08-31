@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect, useRef, memo } from 'react';
+import { useCallback, useMemo, useState, useEffect, useRef, memo } from 'react';
 import { useForm } from 'react-hook-form';
 import { useMediaQuery } from '@librechat/client';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -69,7 +69,9 @@ function UnifiedSidebar() {
   const resizeHandlers = useRef<{ move: (e: MouseEvent) => void; up: () => void } | null>(null);
 
   const links = useUnifiedSidebarLinks();
+  const panelLinks = useMemo(() => links.filter((link) => link.id !== 'edgerunner'), [links]);
   const routeActiveId = getRouteActiveId(location.pathname);
+  const panelRouteActiveId = routeActiveId === 'insights' ? routeActiveId : undefined;
   const isInsightsRoute = routeActiveId === 'insights';
   const panelExpanded = expanded && !isInsightsRoute;
 
@@ -219,25 +221,25 @@ function UnifiedSidebar() {
         <SidebarChatProvider>
           <ActivePanelProvider>
             <MobileHeader
-              links={links}
+              links={panelLinks}
               expanded={expanded}
               onClose={handleCollapse}
               onLeaveInsights={handleLeaveInsights}
-              routeActiveId={routeActiveId}
+              routeActiveId={panelRouteActiveId}
             />
             <ModeSwitcher links={links} routeActiveId={routeActiveId} onNavigate={handleCollapse} />
             <nav
               id="chat-history-nav"
               className="min-h-0 flex-1 overflow-hidden bg-surface-primary-alt"
             >
-              <SidePanelNav links={links} />
+              <SidePanelNav links={panelLinks} />
             </nav>
             <MobileShortcutTargets
-              links={links}
+              links={panelLinks}
               onLeaveInsights={handleLeaveInsights}
-              routeActiveId={routeActiveId}
+              routeActiveId={panelRouteActiveId}
             />
-            <MobileBottomBar links={links} onNewChat={handleCollapse} />
+            <MobileBottomBar links={panelLinks} onNewChat={handleCollapse} />
           </ActivePanelProvider>
         </SidebarChatProvider>
       </div>
@@ -260,7 +262,9 @@ function UnifiedSidebar() {
           aria-label={localize('com_nav_control_panel')}
         >
           <Sidebar
-            links={links}
+            links={panelLinks}
+            modeLinks={links}
+            modeRouteActiveId={routeActiveId}
             expanded={panelExpanded}
             width={resizeNow}
             minWidth={panelExpanded ? EXPANDED_MIN : COLLAPSED_WIDTH}
@@ -268,7 +272,7 @@ function UnifiedSidebar() {
             onCollapse={handleCollapse}
             onExpand={handlePanelExpand}
             onLeaveInsights={handleLeaveInsights}
-            routeActiveId={routeActiveId}
+            routeActiveId={panelRouteActiveId}
             onResizeStart={handleResizeStart}
             onResizeKeyboard={handleResizeKeyboard}
           />
