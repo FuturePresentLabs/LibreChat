@@ -98,6 +98,7 @@ export enum QueryKeys {
   edgerunnerConfig = 'edgerunnerConfig',
   edgerunnerHealth = 'edgerunnerHealth',
   edgerunnerRepositories = 'edgerunnerRepositories',
+  edgerunnerBranches = 'edgerunnerBranches',
   edgerunnerSessions = 'edgerunnerSessions',
   edgerunnerSession = 'edgerunnerSession',
   edgerunnerEvents = 'edgerunnerEvents',

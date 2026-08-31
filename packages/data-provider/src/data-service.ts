@@ -959,6 +959,14 @@ export function listEdgerunnerRepositories(): Promise<t.EdgerunnerRepositoriesRe
   return request.get(endpoints.edgerunnerRepositories());
 }
 
+export function listEdgerunnerBranches(
+  owner: string,
+  repo: string,
+  q?: string,
+): Promise<t.EdgerunnerBranchesResponse> {
+  return request.get(endpoints.edgerunnerRepositoryBranches(owner, repo, q));
+}
+
 export function listEdgerunnerSessions(): Promise<t.EdgerunnerSessionsResponse> {
   return request.get(endpoints.edgerunnerSessions());
 }

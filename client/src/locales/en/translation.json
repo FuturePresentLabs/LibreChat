@@ -1737,6 +1737,7 @@
   "com_edgerunner_artifact": "Artifact",
   "com_edgerunner_artifacts": "Artifacts",
   "com_edgerunner_auto_start": "Start immediately",
+  "com_edgerunner_branch_select": "Branch",
   "com_edgerunner_empty_prompt": "Start with a repo, profile, and request.",
   "com_edgerunner_event": "Event",
   "com_edgerunner_events": "Events",

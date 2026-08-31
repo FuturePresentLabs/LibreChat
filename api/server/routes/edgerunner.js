@@ -1,5 +1,4 @@
 const express = require('express');
-const fetch = require('node-fetch');
 const { generateCheckAccess } = require('@librechat/api');
 const { PermissionTypes, Permissions } = require('librechat-data-provider');
 const { getRoleByName } = require('~/models');
@@ -12,7 +11,6 @@ const {
 
 const EVENT_POLL_INTERVAL_MS = 1500;
 const HEARTBEAT_INTERVAL_MS = 15000;
-const GITHUB_API_BASE = 'https://api.github.com';
 
 const DEFAULT_PROFILES = [
   {
@@ -147,44 +145,19 @@ function createSessionPayload(body = {}) {
   return payload;
 }
 
-function githubToken(req) {
-  return (
-    safeString(process.env.EDGERUNNER_GITHUB_TOKEN) ||
-    safeString(process.env.GITHUB_TOKEN) ||
-    safeString(process.env.GH_TOKEN) ||
-    safeString(process.env.GITHUB_SKILLS_TOKEN) ||
-    safeString(req.user?.federatedTokens?.access_token) ||
-    safeString(req.user?.openidTokens?.access_token)
-  );
-}
-
-async function githubJson(path, token) {
-  const response = await fetch(`${GITHUB_API_BASE}${path}`, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-  });
-  const data = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new EdgerunnerError('GitHub repository lookup failed', response.status, data);
-  }
-  return data;
-}
-
 function normalizeGitHubRepo(repo) {
+  const fullName = safeString(repo.full_name);
   return {
-    id: String(repo.id),
+    id: fullName || safeString(repo.id) || safeString(repo.name),
     name: repo.name,
-    full_name: repo.full_name,
+    full_name: fullName,
     private: Boolean(repo.private),
     default_branch: repo.default_branch || 'main',
     html_url: repo.html_url,
     clone_url: repo.clone_url,
     ssh_url: repo.ssh_url,
     pushed_at: repo.pushed_at,
-    owner: repo.owner?.login,
+    owner: safeString(repo.owner) || repo.owner?.login,
   };
 }
 
@@ -308,22 +281,57 @@ router.get('/config', (_req, res) => {
 });
 
 router.get('/repositories', async (req, res) => {
-  const token = githubToken(req);
-  if (!token) {
-    return res.json({ repositories: [], credentialPresent: false });
-  }
-
   try {
-    const repos = await githubJson(
-      '/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member',
-      token,
+    const response = await client.completeRepositories(
+      {
+        q: safeString(req.query.q),
+        limit: safeString(req.query.limit) || 100,
+        billing_company_id: safeString(req.query.billing_company_id),
+      },
+      req.user,
     );
+    const repos = response?.repositories;
     res.json({
       credentialPresent: true,
       repositories: Array.isArray(repos) ? repos.map(normalizeGitHubRepo) : [],
     });
   } catch (error) {
-    sendError(res, error);
+    if (error instanceof EdgerunnerError && [401, 403, 404, 501].includes(error.status)) {
+      return res.json({
+        credentialPresent: false,
+        repositories: [],
+        message: error.message,
+      });
+    }
+    return sendError(res, error);
+  }
+});
+
+router.get('/repositories/:owner/:repo/branches', async (req, res) => {
+  try {
+    const response = await client.completeBranches(
+      req.params.owner,
+      req.params.repo,
+      {
+        q: safeString(req.query.q),
+        limit: safeString(req.query.limit) || 100,
+        billing_company_id: safeString(req.query.billing_company_id),
+      },
+      req.user,
+    );
+    res.json({
+      credentialPresent: true,
+      branches: Array.isArray(response?.branches) ? response.branches : [],
+    });
+  } catch (error) {
+    if (error instanceof EdgerunnerError && [401, 403, 404, 501].includes(error.status)) {
+      return res.json({
+        credentialPresent: false,
+        branches: [],
+        message: error.message,
+      });
+    }
+    return sendError(res, error);
   }
 });
 

@@ -40,6 +40,7 @@ import type {
   EdgerunnerProfile,
   EdgerunnerSession,
   EdgerunnerArtifact,
+  EdgerunnerBranch,
   EdgerunnerRepository,
   EdgerunnerCreateSessionRequest,
 } from 'librechat-data-provider';
@@ -54,6 +55,7 @@ import {
   useEdgerunnerSessionQuery,
   useEdgerunnerEventStream,
   useEdgerunnerSessionsQuery,
+  useEdgerunnerBranchesQuery,
   useEdgerunnerArtifactsQuery,
   useEdgerunnerRepositoriesQuery,
   useCreateEdgerunnerSessionMutation,
@@ -142,6 +144,20 @@ const repoDisplayName = (repoUrl?: string): string => {
   const parts = cleaned.split(/[/:]/).filter(Boolean);
   return parts.slice(-2).join('/') || repoUrl;
 };
+
+const repoSegments = (repo?: Pick<EdgerunnerRepository, 'owner' | 'name' | 'full_name'> | null) => {
+  const owner = repo?.owner?.trim();
+  const name = repo?.name?.trim();
+  if (owner && name) {
+    return { owner, repo: name };
+  }
+
+  const [fullOwner, fullName] = String(repo?.full_name ?? '').split('/');
+  return fullOwner && fullName ? { owner: fullOwner, repo: fullName } : undefined;
+};
+
+const repoLaunchValue = (repo: EdgerunnerRepository): string =>
+  repo.ssh_url || repo.clone_url || repo.html_url || repo.full_name;
 
 const shortSessionTitle = (session: EdgerunnerSession): string =>
   session.title || repoDisplayName(session.repo_url) || session.id;
@@ -384,13 +400,64 @@ function RepoSelect({
       <SelectContent>
         <SelectItem value={DEFAULT_REPO_VALUE}>{localize('com_edgerunner_repo_manual')}</SelectItem>
         {repos.map((repo) => (
-          <SelectItem
-            key={repo.id}
-            value={repo.ssh_url || repo.clone_url || repo.html_url || repo.full_name}
-          >
+          <SelectItem key={repo.id} value={repoLaunchValue(repo)}>
             <span className="flex min-w-0 items-center gap-2">
               {repo.private ? <Lock className="size-3.5" aria-hidden="true" /> : null}
               <span className="truncate">{repo.full_name}</span>
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function BranchSelect({
+  branches,
+  value,
+  placeholder,
+  disabled,
+  onChange,
+}: {
+  branches: EdgerunnerBranch[];
+  value: string;
+  placeholder: string;
+  disabled?: boolean;
+  onChange: (ref: string) => void;
+}) {
+  const localize = useLocalize();
+  const normalizedValue = value || placeholder || branches[0]?.name || '';
+  const options = branches.some((branch) => branch.name === normalizedValue)
+    ? branches
+    : [{ name: normalizedValue }, ...branches];
+
+  if (branches.length === 0 || !normalizedValue) {
+    return (
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder || 'main'}
+        className="h-8 w-full rounded-md border border-border-light bg-transparent px-3 text-xs text-text-primary outline-none focus:ring-2 focus:ring-text-primary sm:w-28"
+        aria-label={localize('com_edgerunner_ref_label')}
+        disabled={disabled}
+      />
+    );
+  }
+
+  return (
+    <Select value={normalizedValue} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger
+        className="h-8 w-full border-border-light bg-surface-primary text-xs shadow-none sm:w-36"
+        aria-label={localize('com_edgerunner_ref_label')}
+      >
+        <SelectValue placeholder={localize('com_edgerunner_branch_select')} />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((branch) => (
+          <SelectItem key={branch.name} value={branch.name}>
+            <span className="flex min-w-0 items-center gap-2">
+              <GitBranch className="size-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">{branch.name}</span>
             </span>
           </SelectItem>
         ))}
@@ -584,11 +651,30 @@ function NewSessionComposer({
   }, [draft.profileId, profiles]);
 
   const selectedRepo = repositories.find((repo) =>
-    [repo.ssh_url, repo.clone_url, repo.html_url, repo.full_name].includes(draft.repo),
+    [repoLaunchValue(repo), repo.ssh_url, repo.clone_url, repo.html_url, repo.full_name].includes(
+      draft.repo,
+    ),
   );
+  const selectedRepoSegments = repoSegments(selectedRepo);
+  const branchesQuery = useEdgerunnerBranchesQuery(
+    selectedRepoSegments?.owner,
+    selectedRepoSegments?.repo,
+    undefined,
+    { enabled: Boolean(selectedRepoSegments) },
+  );
+  const branches = branchesQuery.data?.branches ?? [];
 
   const updateDraft = (field: keyof DraftState, value: string) => {
     setDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const updateRepo = (repoUrl: string) => {
+    const repo = repositories.find((candidate) => repoLaunchValue(candidate) === repoUrl);
+    setDraft((current) => ({
+      ...current,
+      repo: repoUrl,
+      ref: repo?.default_branch || '',
+    }));
   };
 
   const submit = () => {
@@ -597,7 +683,7 @@ function NewSessionComposer({
       return;
     }
 
-    const ref = draft.ref.trim() || selectedRepo?.default_branch || '';
+    const ref = draft.ref.trim() || selectedRepo?.default_branch || branches[0]?.name || '';
     const payload: EdgerunnerCreateSessionRequest = {
       prompt,
       auto_start: true,
@@ -634,7 +720,7 @@ function NewSessionComposer({
             repos={repositories}
             value={draft.repo}
             disabled={repositoriesLoading || createSession.isLoading}
-            onChange={(repoUrl) => updateDraft('repo', repoUrl)}
+            onChange={updateRepo}
           />
         ) : (
           <input
@@ -644,12 +730,12 @@ function NewSessionComposer({
             className="h-8 min-w-0 flex-1 rounded-md border border-border-light bg-transparent px-3 text-xs text-text-primary outline-none focus:ring-2 focus:ring-text-primary sm:max-w-[280px]"
           />
         )}
-        <input
+        <BranchSelect
+          branches={selectedRepo ? branches : []}
           value={draft.ref}
-          onChange={(event) => updateDraft('ref', event.target.value)}
           placeholder={selectedRepo?.default_branch || 'main'}
-          className="h-8 w-full rounded-md border border-border-light bg-transparent px-3 text-xs text-text-primary outline-none focus:ring-2 focus:ring-text-primary sm:w-28"
-          aria-label={localize('com_edgerunner_ref_label')}
+          disabled={createSession.isLoading || branchesQuery.isLoading}
+          onChange={(ref) => updateDraft('ref', ref)}
         />
         <ProfileSelect
           profiles={profiles}

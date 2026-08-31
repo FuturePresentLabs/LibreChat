@@ -10,6 +10,7 @@ import type {
   EdgerunnerEventsResponse,
   EdgerunnerHealthResponse,
   EdgerunnerSessionsResponse,
+  EdgerunnerBranchesResponse,
   EdgerunnerRepositoriesResponse,
   EdgerunnerArtifactsResponse,
 } from 'librechat-data-provider';
@@ -96,6 +97,28 @@ export const useEdgerunnerRepositoriesQuery = (
     [QueryKeys.edgerunnerRepositories],
     () => dataService.listEdgerunnerRepositories(),
     {
+      staleTime: 60_000,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: true,
+      retry: false,
+      ...config,
+    },
+  );
+};
+
+export const useEdgerunnerBranchesQuery = (
+  owner: string | null | undefined,
+  repo: string | null | undefined,
+  q?: string,
+  config?: UseQueryOptions<EdgerunnerBranchesResponse>,
+): QueryObserverResult<EdgerunnerBranchesResponse> => {
+  const stableOwner = owner ?? '';
+  const stableRepo = repo ?? '';
+  return useQuery<EdgerunnerBranchesResponse>(
+    [QueryKeys.edgerunnerBranches, stableOwner, stableRepo, q ?? ''],
+    () => dataService.listEdgerunnerBranches(stableOwner, stableRepo, q),
+    {
+      enabled: Boolean(stableOwner && stableRepo),
       staleTime: 60_000,
       refetchOnWindowFocus: false,
       refetchOnReconnect: true,

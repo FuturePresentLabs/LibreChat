@@ -57,6 +57,28 @@ function normalizePath(path) {
   return value.startsWith('/') ? value : `/${value}`;
 }
 
+function buildQuery(params = {}) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      query.set(key, String(value));
+    }
+  }
+  const value = query.toString();
+  return value ? `?${value}` : '';
+}
+
+function identityHeaders(user = {}) {
+  const email = user.email || user.openidEmail || user.username;
+  const subject = user.id || user._id?.toString() || email;
+  return Object.fromEntries(
+    Object.entries({
+      'x-fpl-user-email': email,
+      'x-fpl-user-subject': subject,
+    }).filter(([, value]) => typeof value === 'string' && value.trim() !== ''),
+  );
+}
+
 async function parseResponse(response) {
   const contentType = response.headers.get('content-type') || '';
   if (response.status === 204) {
@@ -188,6 +210,34 @@ class EdgerunnerClient {
       body,
     });
   }
+
+  completeRepositories(query = {}, user) {
+    return this.request(
+      `/v1/github/repos${buildQuery({
+        q: query.q,
+        limit: query.limit,
+        billing_company_id: query.billing_company_id,
+      })}`,
+      {
+        headers: identityHeaders(user),
+      },
+    );
+  }
+
+  completeBranches(owner, repo, query = {}, user) {
+    return this.request(
+      `/v1/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches${buildQuery(
+        {
+          q: query.q,
+          limit: query.limit,
+          billing_company_id: query.billing_company_id,
+        },
+      )}`,
+      {
+        headers: identityHeaders(user),
+      },
+    );
+  }
 }
 
 module.exports = {
@@ -195,5 +245,6 @@ module.exports = {
   EdgerunnerError,
   getEdgerunnerConfig,
   getUserLabels,
+  identityHeaders,
   withActorLabels,
 };

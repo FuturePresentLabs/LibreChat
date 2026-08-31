@@ -64,6 +64,19 @@ export type EdgerunnerRepository = {
 export type EdgerunnerRepositoriesResponse = {
   credentialPresent: boolean;
   repositories: EdgerunnerRepository[];
+  message?: string;
+};
+
+export type EdgerunnerBranch = {
+  name: string;
+  sha?: string;
+  protected?: boolean;
+};
+
+export type EdgerunnerBranchesResponse = {
+  credentialPresent: boolean;
+  branches: EdgerunnerBranch[];
+  message?: string;
 };
 
 export type EdgerunnerSession = EdgerunnerJsonObject & {

@@ -61,7 +61,6 @@ describe('Edgerunner routes', () => {
       ...originalEnv,
       EDGERUNNER_BASE_URL: 'http://127.0.0.1:8087',
       EDGERUNNER_API_TOKEN: 'test-token',
-      EDGERUNNER_GITHUB_TOKEN: 'github-token',
       EDGERUNNER_PROFILES: '',
     };
     mockFetch.mockReset();
@@ -160,22 +159,22 @@ describe('Edgerunner routes', () => {
     });
   });
 
-  it('lists GitHub repositories without exposing the token', async () => {
+  it('lists GitHub repositories through Edgerunner discovery', async () => {
     mockFetch.mockResolvedValueOnce(
-      await jsonResponse([
-        {
-          id: 123,
-          name: 'LibreChat',
-          full_name: 'FuturePresentLabs/LibreChat',
-          private: true,
-          default_branch: 'fpl/prod-librechat',
-          html_url: 'https://github.com/FuturePresentLabs/LibreChat',
-          clone_url: 'https://github.com/FuturePresentLabs/LibreChat.git',
-          ssh_url: 'git@github.com:FuturePresentLabs/LibreChat.git',
-          pushed_at: '2026-08-31T01:00:00Z',
-          owner: { login: 'FuturePresentLabs' },
-        },
-      ]),
+      await jsonResponse({
+        repositories: [
+          {
+            name: 'LibreChat',
+            full_name: 'FuturePresentLabs/LibreChat',
+            private: true,
+            default_branch: 'fpl/prod-librechat',
+            html_url: 'https://github.com/FuturePresentLabs/LibreChat',
+            clone_url: 'https://github.com/FuturePresentLabs/LibreChat.git',
+            ssh_url: 'git@github.com:FuturePresentLabs/LibreChat.git',
+            owner: 'FuturePresentLabs',
+          },
+        ],
+      }),
     );
     const app = buildApp();
 
@@ -186,7 +185,7 @@ describe('Edgerunner routes', () => {
       credentialPresent: true,
       repositories: [
         {
-          id: '123',
+          id: 'FuturePresentLabs/LibreChat',
           name: 'LibreChat',
           full_name: 'FuturePresentLabs/LibreChat',
           private: true,
@@ -194,20 +193,75 @@ describe('Edgerunner routes', () => {
           html_url: 'https://github.com/FuturePresentLabs/LibreChat',
           clone_url: 'https://github.com/FuturePresentLabs/LibreChat.git',
           ssh_url: 'git@github.com:FuturePresentLabs/LibreChat.git',
-          pushed_at: '2026-08-31T01:00:00Z',
           owner: 'FuturePresentLabs',
         },
       ],
     });
     expect(mockFetch).toHaveBeenCalledWith(
-      'https://api.github.com/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member',
+      'http://127.0.0.1:8087/v1/github/repos?limit=100',
       expect.objectContaining({
         headers: expect.objectContaining({
-          Authorization: 'Bearer github-token',
+          authorization: 'Bearer test-token',
+          'x-fpl-user-email': 'avery@fpl.dev',
+          'x-fpl-user-subject': 'user-1',
         }),
       }),
     );
-    expect(response.text).not.toContain('github-token');
+    expect(response.text).not.toContain('test-token');
+  });
+
+  it('lists GitHub branches through Edgerunner discovery', async () => {
+    mockFetch.mockResolvedValueOnce(
+      await jsonResponse({
+        branches: [
+          {
+            name: 'fpl/prod-librechat',
+            sha: 'abc123',
+            protected: true,
+          },
+        ],
+      }),
+    );
+    const app = buildApp();
+
+    const response = await request(app).get(
+      '/api/edgerunner/repositories/FuturePresentLabs/LibreChat/branches?q=fpl',
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      credentialPresent: true,
+      branches: [
+        {
+          name: 'fpl/prod-librechat',
+          sha: 'abc123',
+          protected: true,
+        },
+      ],
+    });
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:8087/v1/github/repos/FuturePresentLabs/LibreChat/branches?q=fpl&limit=100',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          authorization: 'Bearer test-token',
+          'x-fpl-user-email': 'avery@fpl.dev',
+        }),
+      }),
+    );
+  });
+
+  it('reports missing GitHub credentials as an empty discovery result', async () => {
+    mockFetch.mockResolvedValueOnce(await jsonResponse({ error: 'github is not connected' }, 404));
+    const app = buildApp();
+
+    const response = await request(app).get('/api/edgerunner/repositories');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      credentialPresent: false,
+      repositories: [],
+      message: 'github is not connected',
+    });
   });
 
   it('applies hidden profile launch options server-side', async () => {
