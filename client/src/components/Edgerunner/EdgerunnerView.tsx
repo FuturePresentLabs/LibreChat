@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Box,
+  ChevronDown,
   CheckCircle2,
   GitBranch,
   LoaderCircle,
@@ -1035,6 +1036,45 @@ function EventsTranscript({
   );
 }
 
+function LogsViewport({ lines }: { lines: string[] }) {
+  const localize = useLocalize();
+
+  if (lines.length === 0) {
+    return (
+      <div className="p-4 text-sm text-text-secondary">{localize('com_edgerunner_no_logs')}</div>
+    );
+  }
+
+  return (
+    <div className="h-full min-h-0 max-w-full overflow-auto overscroll-contain rounded-lg border border-border-light bg-surface-primary">
+      <pre className="min-w-max whitespace-pre p-3 font-mono text-xs leading-relaxed text-text-primary">
+        {lines.join('\n')}
+      </pre>
+    </div>
+  );
+}
+
+function MobileLogsPanel({ lines }: { lines: string[] }) {
+  const localize = useLocalize();
+
+  return (
+    <div className="shrink-0 border-t border-border-light bg-surface-secondary px-3 py-2 lg:hidden">
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center justify-between rounded-md px-2 py-2 text-sm font-medium text-text-primary hover:bg-surface-hover [&::-webkit-details-marker]:hidden">
+          <span>{localize('com_edgerunner_logs')}</span>
+          <ChevronDown
+            className="size-4 shrink-0 text-text-secondary transition-transform group-open:rotate-180"
+            aria-hidden="true"
+          />
+        </summary>
+        <div className="h-56 min-h-0 pt-2">
+          <LogsViewport lines={lines} />
+        </div>
+      </details>
+    </div>
+  );
+}
+
 function Inspector({
   events,
   lines,
@@ -1081,16 +1121,8 @@ function Inspector({
             </div>
           )}
         </TabsContent>
-        <TabsContent value="logs" className="min-h-0 flex-1 overflow-auto">
-          {lines.length === 0 ? (
-            <div className="p-4 text-sm text-text-secondary">
-              {localize('com_edgerunner_no_logs')}
-            </div>
-          ) : (
-            <pre className="min-h-full bg-surface-primary p-3 font-mono text-xs leading-relaxed text-text-primary">
-              {lines.join('\n')}
-            </pre>
-          )}
+        <TabsContent value="logs" className="min-h-0 flex-1 overflow-hidden px-3 pb-3">
+          <LogsViewport lines={lines} />
         </TabsContent>
         <TabsContent value="artifacts" className="min-h-0 flex-1 overflow-auto px-3 pb-3">
           {artifacts.length === 0 ? (
@@ -1306,6 +1338,7 @@ function SessionWorkspace({
             <EmptyChat profiles={profiles} />
           )}
         </div>
+        {session ? <MobileLogsPanel lines={logLines} /> : null}
         {sessionId ? (
           <MessageComposer sessionId={sessionId} />
         ) : (
