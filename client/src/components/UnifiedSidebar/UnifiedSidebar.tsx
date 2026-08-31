@@ -21,6 +21,7 @@ import useSidebarToggle from '~/hooks/Nav/useSidebarToggle';
 import useSidebarState from '~/hooks/Nav/useSidebarState';
 import { useChatHelpers, useLocalize } from '~/hooks';
 import SidePanelNav from '~/components/SidePanel/Nav';
+import ModeSwitcher from './ModeSwitcher';
 import Sidebar from './Sidebar';
 import { cn } from '~/utils';
 
@@ -224,6 +225,7 @@ function UnifiedSidebar() {
               onLeaveInsights={handleLeaveInsights}
               routeActiveId={routeActiveId}
             />
+            <ModeSwitcher links={links} routeActiveId={routeActiveId} onNavigate={handleCollapse} />
             <nav
               id="chat-history-nav"
               className="min-h-0 flex-1 overflow-hidden bg-surface-primary-alt"
