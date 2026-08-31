@@ -144,6 +144,45 @@ class EdgerunnerClient {
     }
   }
 
+  async stream(path, options = {}) {
+    if (!this.isEnabled()) {
+      throw new EdgerunnerError('Edgerunner is not configured', 404);
+    }
+
+    const headers = {
+      accept: 'text/event-stream',
+      ...(this.config.apiToken && { authorization: `Bearer ${this.config.apiToken}` }),
+      ...(options.headers || {}),
+    };
+
+    try {
+      const response = await fetch(`${this.config.baseURL}${normalizePath(path)}`, {
+        method: options.method || 'GET',
+        headers,
+        signal: options.signal,
+      });
+
+      if (!response.ok) {
+        const data = await parseResponse(response);
+        const message =
+          data && typeof data === 'object' && typeof data.error === 'string'
+            ? data.error
+            : `Edgerunner request failed with ${response.status}`;
+        throw new EdgerunnerError(message, response.status, data);
+      }
+
+      return response;
+    } catch (error) {
+      if (error instanceof EdgerunnerError) {
+        throw error;
+      }
+      if (error.name === 'AbortError') {
+        throw error;
+      }
+      throw new EdgerunnerError('Edgerunner request failed', 502, { message: error.message });
+    }
+  }
+
   health() {
     return this.request('/healthz');
   }
@@ -173,6 +212,15 @@ class EdgerunnerClient {
   listEvents(sessionId, after) {
     const query = after == null ? '' : `?after=${encodeURIComponent(after)}`;
     return this.request(`/v1/sessions/${encodeURIComponent(sessionId)}/events${query}`);
+  }
+
+  streamEvents(sessionId, { after, lastEventId, signal } = {}, user) {
+    const cursor = after != null ? after : lastEventId;
+    const query = cursor == null || cursor === '' ? '' : `?after=${encodeURIComponent(cursor)}`;
+    return this.stream(`/v1/sessions/${encodeURIComponent(sessionId)}/stream${query}`, {
+      signal,
+      headers: identityHeaders(user),
+    });
   }
 
   listLogs(sessionId) {

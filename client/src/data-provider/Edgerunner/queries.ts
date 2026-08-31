@@ -19,6 +19,26 @@ const ACTIVE_SESSION_REFRESH_MS = 2_000;
 const IDLE_SESSION_REFRESH_MS = 10_000;
 
 const terminalStatuses = new Set(['completed', 'failed', 'interrupted', 'cancelled', 'canceled']);
+const streamEventNames = [
+  'edgerunner.event',
+  'session_created',
+  'message',
+  'run_started',
+  'agent_started',
+  'agent_progress',
+  'plan_ready',
+  'files_changed',
+  'validation_started',
+  'validation_passed',
+  'validation_failed',
+  'needs_approval',
+  'question',
+  'pr_ready',
+  'agent_heartbeat',
+  'run_completed',
+  'run_failed',
+  'approval',
+];
 
 export const getEdgerunnerSessions = (
   response: EdgerunnerSessionsResponse | undefined,
@@ -251,9 +271,11 @@ export const useEdgerunnerEventStream = (sessionId: string | null | undefined, e
       }
     };
 
-    source.addEventListener('edgerunner.event', handleEvent);
+    source.onmessage = handleEvent;
+    streamEventNames.forEach((eventName) => source.addEventListener(eventName, handleEvent));
     return () => {
-      source.removeEventListener('edgerunner.event', handleEvent);
+      source.onmessage = null;
+      streamEventNames.forEach((eventName) => source.removeEventListener(eventName, handleEvent));
       source.close();
     };
   }, [queryClient, stableSessionId, url]);

@@ -1,5 +1,6 @@
 const express = require('express');
 const request = require('supertest');
+const { PassThrough } = require('stream');
 
 const mockFetch = jest.fn();
 const mockCheckAccess = jest.fn((_req, _res, next) => next());
@@ -41,6 +42,31 @@ function jsonResponse(body, status = 200) {
     },
     json: async () => body,
     text: async () => JSON.stringify(body),
+  });
+}
+
+function sseResponse(body, status = 200) {
+  const stream = new PassThrough();
+  process.nextTick(() => {
+    stream.end(body);
+  });
+  return Promise.resolve({
+    ok: status >= 200 && status < 300,
+    status,
+    headers: {
+      get: (name) => {
+        if (name.toLowerCase() === 'content-type') {
+          return 'text/event-stream';
+        }
+        if (name.toLowerCase() === 'cache-control') {
+          return 'no-cache';
+        }
+        return null;
+      },
+    },
+    body: stream,
+    json: async () => ({}),
+    text: async () => body,
   });
 }
 
@@ -90,7 +116,7 @@ describe('Edgerunner routes', () => {
       ],
       events: {
         transport: 'sse',
-        nativeTransport: 'polling',
+        nativeTransport: 'sse',
       },
     });
     expect(response.text).not.toContain('127.0.0.1');
@@ -367,6 +393,36 @@ describe('Edgerunner routes', () => {
     expect(response.body).toEqual([{ id: 3, kind: 'message' }]);
     expect(mockFetch.mock.calls[0][0]).toBe(
       'http://127.0.0.1:8087/v1/sessions/session-1/events?after=2',
+    );
+  });
+
+  it('relays native session event streams from Edgerunner', async () => {
+    mockFetch.mockResolvedValueOnce(
+      await sseResponse(
+        'id: 3\nevent: agent_progress\ndata: {"id":3,"kind":"agent_progress","message":"working"}\n\n',
+      ),
+    );
+    const app = buildApp();
+
+    const response = await request(app)
+      .get('/api/edgerunner/sessions/session-1/events?stream=true&after=2')
+      .set('Accept', 'text/event-stream');
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('text/event-stream');
+    expect(response.text).toContain('event: agent_progress');
+    expect(response.text).toContain('"message":"working"');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:8087/v1/sessions/session-1/stream?after=2',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          accept: 'text/event-stream',
+          authorization: 'Bearer test-token',
+          'x-fpl-user-email': 'avery@fpl.dev',
+          'x-fpl-user-subject': 'user-1',
+        }),
+      }),
     );
   });
 });

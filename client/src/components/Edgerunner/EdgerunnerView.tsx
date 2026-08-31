@@ -1046,7 +1046,7 @@ function LogsViewport({ lines }: { lines: string[] }) {
   }
 
   return (
-    <div className="h-full min-h-0 max-w-full overflow-auto overscroll-contain rounded-lg border border-border-light bg-surface-primary">
+    <div className="h-full min-h-0 max-w-full overflow-auto overscroll-contain bg-surface-primary">
       <pre className="min-w-max whitespace-pre p-3 font-mono text-xs leading-relaxed text-text-primary">
         {lines.join('\n')}
       </pre>

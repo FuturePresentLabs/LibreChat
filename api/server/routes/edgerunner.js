@@ -9,9 +9,6 @@ const {
   getEdgerunnerConfig,
 } = require('~/server/services/Edgerunner/client');
 
-const EVENT_POLL_INTERVAL_MS = 1500;
-const HEARTBEAT_INTERVAL_MS = 15000;
-
 const DEFAULT_PROFILES = [
   {
     id: 'standard',
@@ -172,16 +169,6 @@ function parseAfter(value) {
   return parsed;
 }
 
-function eventId(event) {
-  if (event && Number.isSafeInteger(event.id)) {
-    return event.id;
-  }
-  if (event && typeof event.id === 'string' && /^\d+$/.test(event.id)) {
-    return Number.parseInt(event.id, 10);
-  }
-  return undefined;
-}
-
 function writeSse(res, event, data, id) {
   if (id != null) {
     res.write(`id: ${id}\n`);
@@ -191,61 +178,73 @@ function writeSse(res, event, data, id) {
 }
 
 async function streamEvents(req, res, sessionId, initialAfter) {
-  let after = initialAfter;
-  let closed = false;
-
-  res.status(200);
-  res.set({
-    'Cache-Control': 'no-cache, no-transform',
-    Connection: 'keep-alive',
-    'Content-Type': 'text/event-stream',
-    'X-Accel-Buffering': 'no',
-  });
-  res.flushHeaders?.();
-  writeSse(res, 'ready', { sessionId, after });
+  const controller = new AbortController();
+  const parsedLastEventId = parseAfter(req.headers['last-event-id']);
+  const lastEventId = parsedLastEventId === null ? undefined : parsedLastEventId;
+  let clientClosed = false;
 
   req.on('close', () => {
-    closed = true;
+    clientClosed = true;
+    controller.abort();
   });
 
-  const poll = async () => {
-    if (closed) {
+  try {
+    const upstream = await client.streamEvents(
+      sessionId,
+      {
+        after: initialAfter,
+        lastEventId,
+        signal: controller.signal,
+      },
+      req.user,
+    );
+
+    if (clientClosed) {
+      res.end();
       return;
     }
 
-    try {
-      const events = await client.listEvents(sessionId, after);
-      const items = Array.isArray(events) ? events : events?.events || [];
-      for (const item of items) {
-        const id = eventId(item);
-        writeSse(res, 'edgerunner.event', item, id);
-        if (id != null && (after == null || id > after)) {
-          after = id;
-        }
+    res.status(200);
+    res.set({
+      'Cache-Control': upstream.headers.get('cache-control') || 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'Content-Type': upstream.headers.get('content-type') || 'text/event-stream',
+      'X-Accel-Buffering': 'no',
+    });
+    res.flushHeaders?.();
+
+    upstream.body.on('error', (error) => {
+      if (!clientClosed && !res.destroyed) {
+        writeSse(res, 'error', {
+          message:
+            error instanceof EdgerunnerError ? error.message : 'Edgerunner event stream failed',
+        });
+        res.end();
       }
-    } catch (error) {
+    });
+    upstream.body.on('end', () => {
+      if (!res.destroyed) {
+        res.end();
+      }
+    });
+    upstream.body.pipe(res, { end: false });
+  } catch (error) {
+    if (clientClosed || error.name === 'AbortError') {
+      if (!res.destroyed) {
+        res.end();
+      }
+      return;
+    }
+    if (res.headersSent) {
       writeSse(res, 'error', {
         message:
           error instanceof EdgerunnerError ? error.message : 'Edgerunner event stream failed',
       });
-      closed = true;
       res.end();
+      return;
     }
-  };
-
-  await poll();
-
-  const pollTimer = setInterval(poll, EVENT_POLL_INTERVAL_MS);
-  const heartbeatTimer = setInterval(() => {
-    if (!closed) {
-      writeSse(res, 'heartbeat', { ts: Date.now(), after });
-    }
-  }, HEARTBEAT_INTERVAL_MS);
-
-  req.on('close', () => {
-    clearInterval(pollTimer);
-    clearInterval(heartbeatTimer);
-  });
+    sendError(res, error);
+  }
 }
 
 function actionToClientCall(sessionId, action, user) {
@@ -275,7 +274,7 @@ router.get('/config', (_req, res) => {
     profiles: getProfiles().map(publicProfile),
     events: {
       transport: 'sse',
-      nativeTransport: 'polling',
+      nativeTransport: 'sse',
     },
   });
 });
