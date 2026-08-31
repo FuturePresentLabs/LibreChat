@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import {
   Button,
+  ControlCombobox,
   Select,
   SelectItem,
   SelectValue,
@@ -28,10 +29,10 @@ import {
   TabsTrigger,
   TextareaAutosize,
   SendIcon,
-  useMediaQuery,
   useToastContext,
   TooltipAnchor,
 } from '@librechat/client';
+import { useNavigate, useParams } from 'react-router-dom';
 import type {
   TMessage,
   EdgerunnerEvent,
@@ -59,7 +60,7 @@ import {
   useEdgerunnerRepositoriesQuery,
   useCreateEdgerunnerSessionMutation,
 } from '~/data-provider';
-import { useDocumentTitle, useLocalize } from '~/hooks';
+import { useDebounce, useDocumentTitle, useLocalize } from '~/hooks';
 import MessageContent from '~/components/Chat/Messages/Content/MessageContent';
 import MessageIcon from '~/components/Chat/Messages/MessageIcon';
 import MessageRow from '~/components/Chat/Messages/ui/MessageRow';
@@ -67,7 +68,7 @@ import { messageFooterClasses } from '~/components/Chat/Messages/styles';
 import OpenSidebar from '~/components/Chat/Menus/OpenSidebar';
 import SubRow from '~/components/Chat/Messages/SubRow';
 import { MessageContext } from '~/Providers';
-import { mainTextareaId, type TAskFunction } from '~/common';
+import { mainTextareaId, type OptionWithIcon, type TAskFunction } from '~/common';
 import { cn, removeFocusRings } from '~/utils';
 import type { FormEvent, ReactNode } from 'react';
 
@@ -328,36 +329,60 @@ function RepoSelect({
   value,
   disabled,
   onChange,
+  onSearchChange,
 }: {
   repos: EdgerunnerRepository[];
   value: string;
   disabled?: boolean;
   onChange: (repoUrl: string) => void;
+  onSearchChange?: (value: string) => void;
 }) {
   const localize = useLocalize();
-  const normalizedValue = value || DEFAULT_REPO_VALUE;
+  const selectedRepo = repos.find((repo) =>
+    [repoLaunchValue(repo), repo.ssh_url, repo.clone_url, repo.html_url, repo.full_name].includes(
+      value,
+    ),
+  );
+  const items = useMemo<OptionWithIcon[]>(
+    () => [
+      {
+        label: localize('com_edgerunner_repo_manual'),
+        value: DEFAULT_REPO_VALUE,
+        icon: <TerminalSquare className="size-4 text-text-secondary" aria-hidden="true" />,
+      },
+      ...repos.map((repo) => ({
+        label: repo.full_name,
+        value: repoLaunchValue(repo),
+        icon: repo.private ? (
+          <Lock className="size-4 text-text-secondary" aria-hidden="true" />
+        ) : (
+          <GitBranch className="size-4 text-text-secondary" aria-hidden="true" />
+        ),
+      })),
+    ],
+    [localize, repos],
+  );
 
   return (
-    <Select
-      value={normalizedValue}
-      onValueChange={(next) => onChange(next === DEFAULT_REPO_VALUE ? '' : next)}
+    <ControlCombobox
+      selectedValue={selectedRepo ? repoLaunchValue(selectedRepo) : DEFAULT_REPO_VALUE}
+      displayValue={selectedRepo?.full_name ?? ''}
+      items={items}
+      setValue={(next) => onChange(next === DEFAULT_REPO_VALUE ? '' : next)}
+      onSearchChange={onSearchChange}
       disabled={disabled}
-    >
-      <SelectTrigger className="h-8 min-w-0 flex-1 border-border-light bg-surface-primary text-xs shadow-none sm:max-w-[280px]">
-        <SelectValue placeholder={localize('com_edgerunner_repo_select')} />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={DEFAULT_REPO_VALUE}>{localize('com_edgerunner_repo_manual')}</SelectItem>
-        {repos.map((repo) => (
-          <SelectItem key={repo.id} value={repoLaunchValue(repo)}>
-            <span className="flex min-w-0 items-center gap-2">
-              {repo.private ? <Lock className="size-3.5" aria-hidden="true" /> : null}
-              <span className="truncate">{repo.full_name}</span>
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+      ariaLabel={localize('com_edgerunner_repo_label')}
+      searchPlaceholder={localize('com_edgerunner_repo_search')}
+      selectPlaceholder={localize('com_edgerunner_repo_select')}
+      isCollapsed={false}
+      showCarat={true}
+      matchTriggerWidth={false}
+      placement="top-start"
+      gutter={10}
+      containerClassName="min-w-0 flex-1 px-0 sm:max-w-[280px]"
+      className="h-8 min-w-0 rounded-md border-border-light bg-surface-primary px-3 text-xs shadow-none hover:bg-surface-hover"
+      popoverClassName="animate-popover-bottom min-w-72 rounded-xl shadow-xl"
+    />
   );
 }
 
@@ -367,12 +392,14 @@ function BranchSelect({
   placeholder,
   disabled,
   onChange,
+  onSearchChange,
 }: {
   branches: EdgerunnerBranch[];
   value: string;
   placeholder: string;
   disabled?: boolean;
   onChange: (ref: string) => void;
+  onSearchChange?: (value: string) => void;
 }) {
   const localize = useLocalize();
   const normalizedValue = value || placeholder || branches[0]?.name || '';
@@ -392,26 +419,32 @@ function BranchSelect({
       />
     );
   }
+  const items = options.map<OptionWithIcon>((branch) => ({
+    label: branch.name,
+    value: branch.name,
+    icon: <GitBranch className="size-4 text-text-secondary" aria-hidden="true" />,
+  }));
 
   return (
-    <Select value={normalizedValue} onValueChange={onChange} disabled={disabled}>
-      <SelectTrigger
-        className="h-8 w-full border-border-light bg-surface-primary text-xs shadow-none sm:w-36"
-        aria-label={localize('com_edgerunner_ref_label')}
-      >
-        <SelectValue placeholder={localize('com_edgerunner_branch_select')} />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((branch) => (
-          <SelectItem key={branch.name} value={branch.name}>
-            <span className="flex min-w-0 items-center gap-2">
-              <GitBranch className="size-3.5 shrink-0" aria-hidden="true" />
-              <span className="truncate">{branch.name}</span>
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <ControlCombobox
+      selectedValue={normalizedValue}
+      displayValue={normalizedValue}
+      items={items}
+      setValue={onChange}
+      onSearchChange={onSearchChange}
+      disabled={disabled}
+      ariaLabel={localize('com_edgerunner_ref_label')}
+      searchPlaceholder={localize('com_edgerunner_branch_search')}
+      selectPlaceholder={localize('com_edgerunner_branch_select')}
+      isCollapsed={false}
+      showCarat={true}
+      matchTriggerWidth={false}
+      placement="top-start"
+      gutter={10}
+      containerClassName="min-w-0 px-0 sm:w-36"
+      className="h-8 min-w-0 rounded-md border-border-light bg-surface-primary px-3 text-xs shadow-none hover:bg-surface-hover"
+      popoverClassName="animate-popover-bottom min-w-56 rounded-xl shadow-xl"
+    />
   );
 }
 
@@ -588,10 +621,28 @@ function NewSessionComposer({
   const localize = useLocalize();
   const { showToast } = useToastContext();
   const createSession = useCreateEdgerunnerSessionMutation();
+  const [repoSearch, setRepoSearch] = useState('');
+  const [branchSearch, setBranchSearch] = useState('');
+  const debouncedRepoSearch = useDebounce(repoSearch.trim(), 250);
+  const debouncedBranchSearch = useDebounce(branchSearch.trim(), 250);
   const [draft, setDraft] = useState<DraftState>(() => ({
     ...emptyDraft,
     profileId: profiles[0]?.id || '',
   }));
+  const searchedRepositoriesQuery = useEdgerunnerRepositoriesQuery(debouncedRepoSearch, {
+    enabled: repositoriesConfigured && debouncedRepoSearch.length > 0,
+  });
+  const visibleRepositories = useMemo(() => {
+    const merged = new Map<string, EdgerunnerRepository>();
+    for (const repo of repositories) {
+      merged.set(repo.full_name || repo.id, repo);
+    }
+    for (const repo of searchedRepositoriesQuery.data?.repositories ?? []) {
+      merged.set(repo.full_name || repo.id, repo);
+    }
+    return Array.from(merged.values());
+  }, [repositories, searchedRepositoriesQuery.data?.repositories]);
+  const repositoriesBusy = repositoriesLoading || searchedRepositoriesQuery.isFetching;
 
   useEffect(() => {
     if (!draft.profileId && profiles[0]?.id) {
@@ -599,7 +650,7 @@ function NewSessionComposer({
     }
   }, [draft.profileId, profiles]);
 
-  const selectedRepo = repositories.find((repo) =>
+  const selectedRepo = visibleRepositories.find((repo) =>
     [repoLaunchValue(repo), repo.ssh_url, repo.clone_url, repo.html_url, repo.full_name].includes(
       draft.repo,
     ),
@@ -608,7 +659,7 @@ function NewSessionComposer({
   const branchesQuery = useEdgerunnerBranchesQuery(
     selectedRepoSegments?.owner,
     selectedRepoSegments?.repo,
-    undefined,
+    debouncedBranchSearch || undefined,
     { enabled: Boolean(selectedRepoSegments) },
   );
   const branches = branchesQuery.data?.branches ?? [];
@@ -618,7 +669,8 @@ function NewSessionComposer({
   };
 
   const updateRepo = (repoUrl: string) => {
-    const repo = repositories.find((candidate) => repoLaunchValue(candidate) === repoUrl);
+    const repo = visibleRepositories.find((candidate) => repoLaunchValue(candidate) === repoUrl);
+    setBranchSearch('');
     setDraft((current) => ({
       ...current,
       repo: repoUrl,
@@ -664,12 +716,13 @@ function NewSessionComposer({
         onChange={(value) => updateDraft('prompt', value)}
         onSubmit={submit}
       >
-        {repositories.length > 0 ? (
+        {repositoriesConfigured ? (
           <RepoSelect
-            repos={repositories}
+            repos={visibleRepositories}
             value={draft.repo}
-            disabled={repositoriesLoading || createSession.isLoading}
+            disabled={createSession.isLoading}
             onChange={updateRepo}
+            onSearchChange={setRepoSearch}
           />
         ) : (
           <input
@@ -683,8 +736,9 @@ function NewSessionComposer({
           branches={selectedRepo ? branches : []}
           value={draft.ref}
           placeholder={selectedRepo?.default_branch || 'main'}
-          disabled={createSession.isLoading || branchesQuery.isLoading}
+          disabled={createSession.isLoading || branchesQuery.isLoading || repositoriesBusy}
           onChange={(ref) => updateDraft('ref', ref)}
+          onSearchChange={setBranchSearch}
         />
         <ProfileSelect
           profiles={profiles}
@@ -1271,25 +1325,30 @@ function SessionWorkspace({
 
 export default function EdgerunnerView() {
   const localize = useLocalize();
-  const isSmallScreen = useMediaQuery('(max-width: 768px)');
-  const [selectedSessionId, setSelectedSessionId] = useState<string>();
+  const navigate = useNavigate();
+  const { sessionId } = useParams();
+  const selectedSessionId = sessionId;
   const configQuery = useEdgerunnerConfigQuery();
   const enabled = configQuery.data?.enabled === true;
   const healthQuery = useEdgerunnerHealthQuery({ enabled });
   const sessionsQuery = useEdgerunnerSessionsQuery({ enabled });
-  const repositoriesQuery = useEdgerunnerRepositoriesQuery({ enabled });
+  const repositoriesQuery = useEdgerunnerRepositoriesQuery(undefined, { enabled });
   const sessions = useMemo(() => getEdgerunnerSessions(sessionsQuery.data), [sessionsQuery.data]);
   const profiles = configQuery.data?.profiles ?? [];
   const repositories = repositoriesQuery.data?.repositories ?? [];
   const repositoriesConfigured = repositoriesQuery.data?.credentialPresent !== false;
   useDocumentTitle(localize('com_edgerunner_title'));
 
-  useEffect(() => {
-    if (selectedSessionId || sessions.length === 0 || isSmallScreen) {
-      return;
-    }
-    setSelectedSessionId(sessions[0].id);
-  }, [isSmallScreen, selectedSessionId, sessions]);
+  const selectSession = useCallback(
+    (nextSessionId: string) => {
+      navigate(`/edgerunner/${encodeURIComponent(nextSessionId)}`);
+    },
+    [navigate],
+  );
+
+  const startNewSession = useCallback(() => {
+    navigate('/edgerunner');
+  }, [navigate]);
 
   return (
     <div className="flex h-dvh min-w-0 flex-col bg-surface-primary text-text-primary">
@@ -1302,9 +1361,9 @@ export default function EdgerunnerView() {
         repositories={repositories}
         repositoriesLoading={repositoriesQuery.isLoading}
         repositoriesConfigured={repositoriesConfigured}
-        onSelectSession={setSelectedSessionId}
-        onNewSession={() => setSelectedSessionId(undefined)}
-        onCreated={setSelectedSessionId}
+        onSelectSession={selectSession}
+        onNewSession={startNewSession}
+        onCreated={selectSession}
         onRefreshSessions={() => {
           void configQuery.refetch();
           void healthQuery.refetch();

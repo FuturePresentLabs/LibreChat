@@ -311,7 +311,8 @@ const edgerunnerRoot = `${BASE_URL}/api/edgerunner`;
 
 export const edgerunnerConfig = () => `${edgerunnerRoot}/config`;
 export const edgerunnerHealth = () => `${edgerunnerRoot}/health`;
-export const edgerunnerRepositories = () => `${edgerunnerRoot}/repositories`;
+export const edgerunnerRepositories = (q?: string) =>
+  `${edgerunnerRoot}/repositories${buildQuery({ q })}`;
 export const edgerunnerRepositoryBranches = (owner: string, repo: string, q?: string) =>
   `${edgerunnerRepositories()}/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches${buildQuery(
     { q },

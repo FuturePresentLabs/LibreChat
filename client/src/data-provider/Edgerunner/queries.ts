@@ -91,11 +91,13 @@ export const useEdgerunnerHealthQuery = (
 };
 
 export const useEdgerunnerRepositoriesQuery = (
+  q?: string,
   config?: UseQueryOptions<EdgerunnerRepositoriesResponse>,
 ): QueryObserverResult<EdgerunnerRepositoriesResponse> => {
+  const stableQuery = q?.trim() ?? '';
   return useQuery<EdgerunnerRepositoriesResponse>(
-    [QueryKeys.edgerunnerRepositories],
-    () => dataService.listEdgerunnerRepositories(),
+    [QueryKeys.edgerunnerRepositories, stableQuery],
+    () => dataService.listEdgerunnerRepositories(stableQuery),
     {
       staleTime: 60_000,
       refetchOnWindowFocus: false,

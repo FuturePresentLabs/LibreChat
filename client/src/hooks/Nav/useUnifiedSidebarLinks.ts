@@ -8,6 +8,7 @@ import type { TEndpointsConfig } from 'librechat-data-provider';
 import type { NavLink } from '~/common';
 import { useGetEndpointsQuery, useGetStartupConfig, useInsightsAccessQuery } from '~/data-provider';
 import ConversationsSection from '~/components/UnifiedSidebar/ConversationsSection';
+import EdgerunnerSessionsSection from '~/components/UnifiedSidebar/EdgerunnerSessionsSection';
 import useSideNavLinks from '~/hooks/Nav/useSideNavLinks';
 import { useAuthContext } from '~/hooks';
 import store from '~/store';
@@ -75,6 +76,7 @@ export default function useUnifiedSidebarLinks() {
       label: '',
       icon: TerminalSquare,
       id: 'edgerunner',
+      Component: EdgerunnerSessionsSection,
       onClick: () => {
         if (!location.pathname.startsWith('/edgerunner')) {
           navigate('/edgerunner');

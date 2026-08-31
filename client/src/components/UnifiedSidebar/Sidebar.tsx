@@ -7,8 +7,10 @@ import { cn } from '~/utils';
 
 function Sidebar({
   links,
+  contentLinks,
   modeLinks,
   modeRouteActiveId,
+  contentRouteActiveId,
   expanded,
   width,
   minWidth,
@@ -21,8 +23,10 @@ function Sidebar({
   onResizeKeyboard,
 }: {
   links: NavLink[];
+  contentLinks: NavLink[];
   modeLinks: NavLink[];
   modeRouteActiveId?: string;
+  contentRouteActiveId?: string;
   expanded: boolean;
   width: number;
   minWidth: number;
@@ -56,7 +60,7 @@ function Sidebar({
           <div className="flex h-full min-h-0 flex-col">
             <ModeSwitcher links={modeLinks} routeActiveId={modeRouteActiveId} />
             <div className="min-h-0 flex-1">
-              <SidePanelNav links={links} />
+              <SidePanelNav links={contentLinks} activeId={contentRouteActiveId} />
             </div>
           </div>
         </nav>

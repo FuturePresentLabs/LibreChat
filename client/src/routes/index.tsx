@@ -162,7 +162,7 @@ export const router = createBrowserRouter(
               lazy: loadSkillsView,
             },
             {
-              path: 'edgerunner',
+              path: 'edgerunner/:sessionId?',
               lazy: loadEdgerunnerView,
             },
             {

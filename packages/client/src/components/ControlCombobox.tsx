@@ -15,6 +15,7 @@ interface ControlComboboxProps {
   displayValue?: string;
   items: OptionWithIcon[];
   setValue: (value: string) => void;
+  onSearchChange?: (value: string) => void;
   onBlur?: React.FocusEventHandler<HTMLButtonElement>;
   ariaLabel: string;
   ariaInvalid?: boolean;
@@ -52,6 +53,7 @@ function ControlCombobox({
   displayValue,
   items,
   setValue,
+  onSearchChange,
   onBlur,
   ariaLabel,
   ariaInvalid,
@@ -92,6 +94,10 @@ function ControlCombobox({
     value: searchValue,
     setValue: setSearchValue,
   });
+
+  useEffect(() => {
+    onSearchChange?.(searchValue);
+  }, [onSearchChange, searchValue]);
 
   const select = Ariakit.useSelectStore({
     combobox,
