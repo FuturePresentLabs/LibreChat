@@ -127,6 +127,7 @@ function ExpandedPanel({
   onExpand,
   onNavigate,
   onLeaveInsights,
+  routeActiveId,
 }: {
   links: NavLink[];
   expanded?: boolean;
@@ -134,12 +135,14 @@ function ExpandedPanel({
   onExpand?: () => void;
   onNavigate?: () => void;
   onLeaveInsights?: () => void;
+  routeActiveId?: string;
 }) {
   const localize = useLocalize();
   const location = useLocation();
   const { active, setActive } = useActivePanel();
   const effectiveActive = resolveActivePanel(active, links);
-  const isInsightsRoute = location.pathname.startsWith('/insights');
+  const activeRouteId =
+    routeActiveId ?? (location.pathname.startsWith('/insights') ? 'insights' : undefined);
 
   const toggleLabel = expanded ? 'com_nav_close_sidebar' : 'com_nav_open_sidebar';
   const toggleClick = expanded ? onCollapse : onExpand;
@@ -175,16 +178,14 @@ function ExpandedPanel({
             key={link.id}
             link={link}
             isActive={
-              link.id === 'insights'
-                ? isInsightsRoute
-                : !isInsightsRoute && link.id === effectiveActive
+              link.id === activeRouteId || (activeRouteId == null && link.id === effectiveActive)
             }
             expanded={expanded ?? true}
             setActive={setActive}
             onExpand={onExpand}
             onCollapse={onCollapse}
             onNavigate={onNavigate}
-            onLeaveInsights={isInsightsRoute ? onLeaveInsights : undefined}
+            onLeaveInsights={activeRouteId != null ? onLeaveInsights : undefined}
           />
         ))}
       </div>

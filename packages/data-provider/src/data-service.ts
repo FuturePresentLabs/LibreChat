@@ -947,6 +947,50 @@ export function assignConversationToProject(
   return request.put(endpoints.projectConversation(conversationId), { projectId });
 }
 
+export function getEdgerunnerConfig(): Promise<t.EdgerunnerConfigResponse> {
+  return request.get(endpoints.edgerunnerConfig());
+}
+
+export function getEdgerunnerHealth(): Promise<t.EdgerunnerHealthResponse> {
+  return request.get(endpoints.edgerunnerHealth());
+}
+
+export function listEdgerunnerSessions(): Promise<t.EdgerunnerSessionsResponse> {
+  return request.get(endpoints.edgerunnerSessions());
+}
+
+export function createEdgerunnerSession(
+  payload: t.EdgerunnerCreateSessionRequest,
+): Promise<t.EdgerunnerSession> {
+  return request.post(endpoints.edgerunnerSessions(), payload);
+}
+
+export function getEdgerunnerSession(sessionId: string): Promise<t.EdgerunnerSession> {
+  return request.get(endpoints.edgerunnerSession(sessionId));
+}
+
+export function listEdgerunnerEvents(
+  sessionId: string,
+  after?: number,
+): Promise<t.EdgerunnerEventsResponse> {
+  return request.get(endpoints.edgerunnerSessionEvents(sessionId, after));
+}
+
+export function listEdgerunnerLogs(sessionId: string): Promise<t.EdgerunnerLogsResponse> {
+  return request.get(endpoints.edgerunnerSessionLogs(sessionId));
+}
+
+export function listEdgerunnerArtifacts(sessionId: string): Promise<t.EdgerunnerArtifactsResponse> {
+  return request.get(endpoints.edgerunnerSessionArtifacts(sessionId));
+}
+
+export function sendEdgerunnerAction({
+  sessionId,
+  action,
+}: t.EdgerunnerActionVariables): Promise<t.EdgerunnerJson> {
+  return request.post(endpoints.edgerunnerSessionActions(sessionId), action);
+}
+
 export function pinConversation(
   payload: t.TPinConversationRequest,
 ): Promise<t.TPinConversationResponse> {

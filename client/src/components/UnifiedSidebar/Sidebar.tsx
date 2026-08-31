@@ -13,6 +13,7 @@ function Sidebar({
   onCollapse,
   onExpand,
   onLeaveInsights,
+  routeActiveId,
   onResizeStart,
   onResizeKeyboard,
 }: {
@@ -24,6 +25,7 @@ function Sidebar({
   onCollapse: () => void;
   onExpand: () => void;
   onLeaveInsights: () => void;
+  routeActiveId?: string;
   onResizeStart: (e: React.MouseEvent) => void;
   onResizeKeyboard: (direction: 'shrink' | 'grow') => void;
 }) {
@@ -36,6 +38,7 @@ function Sidebar({
           onCollapse={onCollapse}
           onExpand={onExpand}
           onLeaveInsights={onLeaveInsights}
+          routeActiveId={routeActiveId}
         />
         <nav
           className={cn(

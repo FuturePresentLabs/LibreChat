@@ -95,6 +95,13 @@ export enum QueryKeys {
   schedule = 'schedule',
   parentSubagents = 'parentSubagents',
   subagentThread = 'subagentThread',
+  edgerunnerConfig = 'edgerunnerConfig',
+  edgerunnerHealth = 'edgerunnerHealth',
+  edgerunnerSessions = 'edgerunnerSessions',
+  edgerunnerSession = 'edgerunnerSession',
+  edgerunnerEvents = 'edgerunnerEvents',
+  edgerunnerLogs = 'edgerunnerLogs',
+  edgerunnerArtifacts = 'edgerunnerArtifacts',
 }
 
 // Dynamic query keys that require parameters
@@ -148,4 +155,6 @@ export enum MutationKeys {
   updateSchedule = 'updateSchedule',
   deleteSchedule = 'deleteSchedule',
   runSchedule = 'runSchedule',
+  edgerunnerCreateSession = 'edgerunnerCreateSession',
+  edgerunnerAction = 'edgerunnerAction',
 }

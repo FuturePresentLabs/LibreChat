@@ -29,6 +29,16 @@ function getInitialWidth(): number {
   return saved ? Math.max(Number(saved), EXPANDED_MIN) : EXPANDED_MIN;
 }
 
+function getRouteActiveId(pathname: string): string | undefined {
+  if (pathname.startsWith('/insights')) {
+    return 'insights';
+  }
+  if (pathname.startsWith('/edgerunner')) {
+    return 'edgerunner';
+  }
+  return undefined;
+}
+
 /**
  * Isolates useChatHelpers Recoil subscriptions from the sidebar layout.
  * Atom changes (e.g. during streaming) only re-render this component
@@ -58,8 +68,9 @@ function UnifiedSidebar() {
   const resizeHandlers = useRef<{ move: (e: MouseEvent) => void; up: () => void } | null>(null);
 
   const links = useUnifiedSidebarLinks();
-  const isInsightsRoute = location.pathname.startsWith('/insights');
-  const panelExpanded = expanded && !isInsightsRoute;
+  const routeActiveId = getRouteActiveId(location.pathname);
+  const isControlRoute = routeActiveId != null;
+  const panelExpanded = expanded && !isControlRoute;
 
   /** The aside's max width is a viewport percentage, so the announced range has to track
    *  the viewport rather than a render-time snapshot of it. */
@@ -93,11 +104,11 @@ function UnifiedSidebar() {
   }, [navigate]);
 
   const handlePanelExpand = useCallback(() => {
-    if (isInsightsRoute) {
+    if (isControlRoute) {
       handleLeaveInsights();
     }
     handleExpand();
-  }, [handleExpand, handleLeaveInsights, isInsightsRoute]);
+  }, [handleExpand, handleLeaveInsights, isControlRoute]);
 
   const handleResizeStart = useCallback(() => {
     setIsResizing(true);
@@ -211,7 +222,7 @@ function UnifiedSidebar() {
               expanded={expanded}
               onClose={handleCollapse}
               onLeaveInsights={handleLeaveInsights}
-              routeActiveId={isInsightsRoute ? 'insights' : undefined}
+              routeActiveId={routeActiveId}
             />
             <nav
               id="chat-history-nav"
@@ -222,7 +233,7 @@ function UnifiedSidebar() {
             <MobileShortcutTargets
               links={links}
               onLeaveInsights={handleLeaveInsights}
-              routeActiveId={isInsightsRoute ? 'insights' : undefined}
+              routeActiveId={routeActiveId}
             />
             <MobileBottomBar links={links} onNewChat={handleCollapse} />
           </ActivePanelProvider>
@@ -255,6 +266,7 @@ function UnifiedSidebar() {
             onCollapse={handleCollapse}
             onExpand={handlePanelExpand}
             onLeaveInsights={handleLeaveInsights}
+            routeActiveId={routeActiveId}
             onResizeStart={handleResizeStart}
             onResizeKeyboard={handleResizeKeyboard}
           />

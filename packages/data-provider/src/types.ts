@@ -19,6 +19,7 @@ import type { ProviderId } from './providers';
 
 export * from './schemas';
 export * from './types/subagents';
+export * from './types/edgerunner';
 
 export type TMessages = TMessage[];
 

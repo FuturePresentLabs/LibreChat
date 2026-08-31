@@ -1,15 +1,21 @@
 import { useMemo } from 'react';
 import { useRecoilValue } from 'recoil';
-import { BarChart3, MessagesSquare } from 'lucide-react';
+import { BarChart3, MessagesSquare, TerminalSquare } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useUserKeyQuery } from 'librechat-data-provider/react-query';
-import { getConfigDefaults, getEndpointField, SystemRoles } from 'librechat-data-provider';
+import {
+  Permissions,
+  SystemRoles,
+  PermissionTypes,
+  getConfigDefaults,
+  getEndpointField,
+} from 'librechat-data-provider';
 import type { TEndpointsConfig } from 'librechat-data-provider';
 import type { NavLink } from '~/common';
 import { useGetEndpointsQuery, useGetStartupConfig, useInsightsAccessQuery } from '~/data-provider';
 import ConversationsSection from '~/components/UnifiedSidebar/ConversationsSection';
 import useSideNavLinks from '~/hooks/Nav/useSideNavLinks';
-import { useAuthContext } from '~/hooks';
+import { useAuthContext, useHasAccess } from '~/hooks';
 import store from '~/store';
 
 const defaultInterface = getConfigDefaults().interface;
@@ -29,6 +35,10 @@ export default function useUnifiedSidebarLinks() {
     [startupConfig],
   );
   const insightsFeatureEnabled = startupConfig?.insightsEnabled === true;
+  const hasAccessToRemoteAgents = useHasAccess({
+    permissionType: PermissionTypes.REMOTE_AGENTS,
+    permission: Permissions.USE,
+  });
   const { data: insightsAccess } = useInsightsAccessQuery(user?.id, {
     enabled: user?.role === SystemRoles.ADMIN && insightsFeatureEnabled,
   });
@@ -68,27 +78,47 @@ export default function useUnifiedSidebarLinks() {
       Component: ConversationsSection,
     };
 
-    if (!insightsFeatureEnabled || insightsAccess?.access !== true) {
-      return [conversationLink, ...sideNavLinks];
+    const nextLinks = [...sideNavLinks];
+
+    if (hasAccessToRemoteAgents) {
+      nextLinks.push({
+        title: 'com_edgerunner_title',
+        label: '',
+        icon: TerminalSquare,
+        id: 'edgerunner',
+        onClick: () => {
+          if (!location.pathname.startsWith('/edgerunner')) {
+            navigate('/edgerunner');
+          }
+        },
+      });
     }
 
-    const insightsLink: NavLink = {
-      title: 'com_insights_navigation',
-      label: '',
-      icon: BarChart3,
-      id: 'insights',
-      onClick: () => {
-        if (!location.pathname.startsWith('/insights')) {
-          navigate('/insights');
-        }
-      },
-    };
-    const mcpIndex = sideNavLinks.findIndex((link) => link.id === 'mcp-builder');
-    const nextLinks = [...sideNavLinks];
-    nextLinks.splice(mcpIndex >= 0 ? mcpIndex + 1 : nextLinks.length, 0, insightsLink);
+    if (insightsFeatureEnabled && insightsAccess?.access === true) {
+      const insightsLink: NavLink = {
+        title: 'com_insights_navigation',
+        label: '',
+        icon: BarChart3,
+        id: 'insights',
+        onClick: () => {
+          if (!location.pathname.startsWith('/insights')) {
+            navigate('/insights');
+          }
+        },
+      };
+      const mcpIndex = nextLinks.findIndex((link) => link.id === 'mcp-builder');
+      nextLinks.splice(mcpIndex >= 0 ? mcpIndex + 1 : nextLinks.length, 0, insightsLink);
+    }
 
     return [conversationLink, ...nextLinks];
-  }, [insightsAccess?.access, insightsFeatureEnabled, location.pathname, navigate, sideNavLinks]);
+  }, [
+    insightsAccess?.access,
+    insightsFeatureEnabled,
+    hasAccessToRemoteAgents,
+    location.pathname,
+    navigate,
+    sideNavLinks,
+  ]);
 
   return links;
 }

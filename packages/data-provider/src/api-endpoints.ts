@@ -307,6 +307,23 @@ export const agents = ({ path = '', options }: { path?: string; options?: object
 
 export const activeJobs = () => `${BASE_URL}/api/agents/chat/active`;
 
+const edgerunnerRoot = `${BASE_URL}/api/edgerunner`;
+
+export const edgerunnerConfig = () => `${edgerunnerRoot}/config`;
+export const edgerunnerHealth = () => `${edgerunnerRoot}/health`;
+export const edgerunnerSessions = () => `${edgerunnerRoot}/sessions`;
+export const edgerunnerSession = (sessionId: string) =>
+  `${edgerunnerSessions()}/${encodeURIComponent(sessionId)}`;
+export const edgerunnerSessionMessages = (sessionId: string) =>
+  `${edgerunnerSession(sessionId)}/messages`;
+export const edgerunnerSessionEvents = (sessionId: string, after?: number, stream?: boolean) =>
+  `${edgerunnerSession(sessionId)}/events${buildQuery({ after, stream: stream ? 'true' : undefined })}`;
+export const edgerunnerSessionLogs = (sessionId: string) => `${edgerunnerSession(sessionId)}/logs`;
+export const edgerunnerSessionArtifacts = (sessionId: string) =>
+  `${edgerunnerSession(sessionId)}/artifacts`;
+export const edgerunnerSessionActions = (sessionId: string) =>
+  `${edgerunnerSession(sessionId)}/actions`;
+
 export const mcp = {
   tools: `${BASE_URL}/api/mcp/tools`,
   servers: `${BASE_URL}/api/mcp/servers`,
