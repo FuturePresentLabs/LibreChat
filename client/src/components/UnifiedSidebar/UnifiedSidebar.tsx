@@ -70,8 +70,8 @@ function UnifiedSidebar() {
 
   const links = useUnifiedSidebarLinks();
   const routeActiveId = getRouteActiveId(location.pathname);
-  const isControlRoute = routeActiveId != null;
-  const panelExpanded = expanded && !isControlRoute;
+  const isInsightsRoute = routeActiveId === 'insights';
+  const panelExpanded = expanded && !isInsightsRoute;
 
   /** The aside's max width is a viewport percentage, so the announced range has to track
    *  the viewport rather than a render-time snapshot of it. */
@@ -105,11 +105,11 @@ function UnifiedSidebar() {
   }, [navigate]);
 
   const handlePanelExpand = useCallback(() => {
-    if (isControlRoute) {
+    if (isInsightsRoute) {
       handleLeaveInsights();
     }
     handleExpand();
-  }, [handleExpand, handleLeaveInsights, isControlRoute]);
+  }, [handleExpand, handleLeaveInsights, isInsightsRoute]);
 
   const handleResizeStart = useCallback(() => {
     setIsResizing(true);

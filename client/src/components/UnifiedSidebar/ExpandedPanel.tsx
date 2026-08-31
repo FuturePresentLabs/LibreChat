@@ -185,7 +185,7 @@ function ExpandedPanel({
             onExpand={onExpand}
             onCollapse={onCollapse}
             onNavigate={onNavigate}
-            onLeaveInsights={activeRouteId != null ? onLeaveInsights : undefined}
+            onLeaveInsights={activeRouteId === 'insights' ? onLeaveInsights : undefined}
           />
         ))}
       </div>
