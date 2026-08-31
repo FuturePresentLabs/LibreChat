@@ -1,19 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Bot,
   Box,
   CheckCircle2,
-  Circle,
   GitBranch,
   LoaderCircle,
   Lock,
-  MessageSquare,
   OctagonX,
   Pause,
   Play,
   Plus,
   RefreshCw,
-  Send,
   ShieldCheck,
   TerminalSquare,
 } from 'lucide-react';
@@ -31,11 +27,14 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
-  Textarea,
+  TextareaAutosize,
+  SendIcon,
   useMediaQuery,
   useToastContext,
+  TooltipAnchor,
 } from '@librechat/client';
 import type {
+  TMessage,
   EdgerunnerEvent,
   EdgerunnerJson,
   EdgerunnerProfile,
@@ -60,9 +59,16 @@ import {
   useCreateEdgerunnerSessionMutation,
 } from '~/data-provider';
 import { useDocumentTitle, useLocalize } from '~/hooks';
+import MessageContent from '~/components/Chat/Messages/Content/MessageContent';
+import MessageIcon from '~/components/Chat/Messages/MessageIcon';
+import MessageRow from '~/components/Chat/Messages/ui/MessageRow';
+import { messageFooterClasses } from '~/components/Chat/Messages/styles';
 import OpenSidebar from '~/components/Chat/Menus/OpenSidebar';
-import { cn } from '~/utils';
-import type { FormEvent } from 'react';
+import SubRow from '~/components/Chat/Messages/SubRow';
+import { MessageContext } from '~/Providers';
+import { mainTextareaId, type TAskFunction } from '~/common';
+import { cn, removeFocusRings } from '~/utils';
+import type { FormEvent, ReactNode } from 'react';
 
 type DraftState = {
   repo: string;
@@ -106,6 +112,16 @@ const formatTimestamp = (value: number | string | undefined): string => {
     hour: 'numeric',
     minute: '2-digit',
   }).format(date);
+};
+
+const messageTimestamp = (value: number | string | undefined): string | undefined => {
+  if (value == null || value === '') {
+    return undefined;
+  }
+  const numeric = typeof value === 'number' ? value : Number(value);
+  const timestamp = Number.isFinite(numeric) ? numeric : Date.parse(String(value));
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 };
 
 const jsonPreview = (value: EdgerunnerJson | undefined): string => {
@@ -182,7 +198,7 @@ const transcriptFromEvents = (events: EdgerunnerEvent[], session: EdgerunnerSess
       role: 'user',
       title: 'Request',
       body: String(session.prompt),
-      timestamp: formatTimestamp(session.created_at),
+      timestamp: messageTimestamp(session.created_at),
     });
   }
 
@@ -192,7 +208,7 @@ const transcriptFromEvents = (events: EdgerunnerEvent[], session: EdgerunnerSess
       role: eventRole(event),
       title: eventTitle(event),
       body: eventBody(event),
-      timestamp: formatTimestamp(event.created_at ?? event.ts),
+      timestamp: messageTimestamp(event.created_at ?? event.ts),
       raw: event,
     });
   }
@@ -422,6 +438,124 @@ function ProfileSelect({
   );
 }
 
+function ComposerSubmitButton({
+  disabled,
+  loading,
+  label,
+}: {
+  disabled: boolean;
+  loading: boolean;
+  label: string;
+}) {
+  return (
+    <TooltipAnchor
+      description={label}
+      render={
+        <button
+          type="submit"
+          disabled={disabled}
+          aria-label={label}
+          className="size-theme-control rounded-theme-control-round bg-text-primary p-theme-compact text-surface-primary outline-offset-4 transition-all duration-theme-normal disabled:cursor-not-allowed disabled:text-text-secondary disabled:opacity-10"
+        >
+          {loading ? <Spinner className="size-5" /> : <SendIcon size={24} />}
+        </button>
+      }
+    />
+  );
+}
+
+function EdgerunnerComposerShell({
+  value,
+  rows,
+  loading,
+  disabled,
+  children,
+  ariaLabel,
+  placeholder,
+  onChange,
+  onSubmit,
+}: {
+  value: string;
+  rows: number;
+  loading: boolean;
+  disabled?: boolean;
+  children?: ReactNode;
+  ariaLabel: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+}) {
+  const [isFocused, setIsFocused] = useState(false);
+  const canSubmit = !disabled && !loading && value.trim().length > 0;
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (canSubmit) {
+      onSubmit();
+    }
+  };
+
+  return (
+    <form
+      onSubmit={submit}
+      className="mx-auto flex w-full max-w-3xl flex-row gap-3 px-4 pb-4 transition-[max-width] duration-300 sm:px-2 md:max-w-3xl xl:max-w-4xl"
+    >
+      <div
+        className={cn(
+          'relative flex w-full flex-grow flex-col overflow-hidden rounded-t-3xl border pb-4 text-text-primary transition-all duration-200 sm:rounded-3xl sm:pb-0',
+          isFocused ? 'shadow-lg' : 'shadow-md',
+          'border-border-light bg-surface-chat',
+        )}
+        onClick={() => {
+          if (window.matchMedia?.('(pointer: coarse)').matches) {
+            return;
+          }
+          document.getElementById(mainTextareaId)?.focus();
+        }}
+      >
+        <div className="flex">
+          <div className="relative flex-1">
+            <TextareaAutosize
+              id={mainTextareaId}
+              value={value}
+              rows={rows}
+              maxRows={10}
+              disabled={disabled || loading}
+              aria-label={ariaLabel}
+              placeholder={placeholder}
+              data-testid="text-input"
+              style={{ minHeight: rows > 1 ? 112 : 44, overflowY: 'auto' }}
+              className={cn(
+                'm-0 w-full resize-none bg-transparent px-5 py-[13px] placeholder:text-text-tertiary md:py-3.5',
+                'scrollbar-hover max-h-[45vh] transition-[max-height] duration-200 disabled:cursor-not-allowed md:max-h-[55vh]',
+                removeFocusRings,
+              )}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
+              onChange={(event) => onChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  if (canSubmit) {
+                    onSubmit();
+                  }
+                }
+              }}
+            />
+          </div>
+        </div>
+        <div className="@container items-between flex gap-2 pb-2">
+          <div className="ml-2 flex min-w-0 flex-1 flex-wrap items-center gap-2">{children}</div>
+          <div className="mx-auto flex" />
+          <div className="mr-2">
+            <ComposerSubmitButton disabled={!canSubmit} loading={loading} label={ariaLabel} />
+          </div>
+        </div>
+      </div>
+    </form>
+  );
+}
+
 function NewSessionComposer({
   profiles,
   repositories,
@@ -457,8 +591,7 @@ function NewSessionComposer({
     setDraft((current) => ({ ...current, [field]: value }));
   };
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
+  const submit = () => {
     const prompt = draft.prompt.trim();
     if (!prompt) {
       return;
@@ -486,65 +619,51 @@ function NewSessionComposer({
   };
 
   return (
-    <form className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-4 pb-4" onSubmit={submit}>
-      <div className="rounded-2xl border border-border-light bg-surface-primary shadow-sm">
-        <Textarea
-          value={draft.prompt}
-          rows={4}
-          className="min-h-28 resize-none border-0 bg-transparent p-4 text-base shadow-none focus-visible:ring-0"
-          onChange={(event) => updateDraft('prompt', event.target.value)}
-          placeholder={localize('com_edgerunner_prompt_placeholder')}
-        />
-        <div className="flex flex-col gap-2 border-t border-border-light px-3 py-2 sm:flex-row sm:items-center">
-          {repositories.length > 0 ? (
-            <RepoSelect
-              repos={repositories}
-              value={draft.repo}
-              disabled={repositoriesLoading || createSession.isLoading}
-              onChange={(repoUrl) => updateDraft('repo', repoUrl)}
-            />
-          ) : (
-            <input
-              value={draft.repo}
-              onChange={(event) => updateDraft('repo', event.target.value)}
-              placeholder="git@github.com:FuturePresentLabs/repo.git"
-              className="h-8 min-w-0 flex-1 rounded-md border border-border-light bg-transparent px-3 text-xs text-text-primary outline-none focus:ring-2 focus:ring-text-primary"
-            />
-          )}
+    <div>
+      <EdgerunnerComposerShell
+        value={draft.prompt}
+        rows={4}
+        loading={createSession.isLoading}
+        ariaLabel={localize('com_edgerunner_start_session')}
+        placeholder={localize('com_edgerunner_prompt_placeholder')}
+        onChange={(value) => updateDraft('prompt', value)}
+        onSubmit={submit}
+      >
+        {repositories.length > 0 ? (
+          <RepoSelect
+            repos={repositories}
+            value={draft.repo}
+            disabled={repositoriesLoading || createSession.isLoading}
+            onChange={(repoUrl) => updateDraft('repo', repoUrl)}
+          />
+        ) : (
           <input
-            value={draft.ref}
-            onChange={(event) => updateDraft('ref', event.target.value)}
-            placeholder={selectedRepo?.default_branch || 'main'}
-            className="h-8 w-full rounded-md border border-border-light bg-transparent px-3 text-xs text-text-primary outline-none focus:ring-2 focus:ring-text-primary sm:w-28"
-            aria-label={localize('com_edgerunner_ref_label')}
+            value={draft.repo}
+            onChange={(event) => updateDraft('repo', event.target.value)}
+            placeholder="git@github.com:FuturePresentLabs/repo.git"
+            className="h-8 min-w-0 flex-1 rounded-md border border-border-light bg-transparent px-3 text-xs text-text-primary outline-none focus:ring-2 focus:ring-text-primary sm:max-w-[280px]"
           />
-          <ProfileSelect
-            profiles={profiles}
-            value={draft.profileId}
-            disabled={createSession.isLoading}
-            onChange={(profileId) => updateDraft('profileId', profileId)}
-          />
-          <Button
-            type="submit"
-            size="icon"
-            disabled={createSession.isLoading || !draft.prompt.trim()}
-            aria-label={localize('com_edgerunner_start_session')}
-            className="h-8 w-full shrink-0 sm:w-8"
-          >
-            {createSession.isLoading ? (
-              <Spinner className="size-4" />
-            ) : (
-              <Send className="size-4" aria-hidden="true" />
-            )}
-          </Button>
-        </div>
-      </div>
+        )}
+        <input
+          value={draft.ref}
+          onChange={(event) => updateDraft('ref', event.target.value)}
+          placeholder={selectedRepo?.default_branch || 'main'}
+          className="h-8 w-full rounded-md border border-border-light bg-transparent px-3 text-xs text-text-primary outline-none focus:ring-2 focus:ring-text-primary sm:w-28"
+          aria-label={localize('com_edgerunner_ref_label')}
+        />
+        <ProfileSelect
+          profiles={profiles}
+          value={draft.profileId}
+          disabled={createSession.isLoading}
+          onChange={(profileId) => updateDraft('profileId', profileId)}
+        />
+      </EdgerunnerComposerShell>
       {!repositoriesConfigured ? (
-        <p className="px-2 text-xs text-text-tertiary">
+        <p className="mx-auto -mt-2 w-full max-w-3xl px-4 pb-3 text-xs text-text-tertiary">
           {localize('com_edgerunner_repo_credentials_missing')}
         </p>
       ) : null}
-    </form>
+    </div>
   );
 }
 
@@ -554,8 +673,7 @@ function MessageComposer({ sessionId }: { sessionId: string }) {
   const [message, setMessage] = useState('');
   const action = useEdgerunnerActionMutation();
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
+  const submit = () => {
     const content = message.trim();
     if (!content) {
       return;
@@ -584,26 +702,15 @@ function MessageComposer({ sessionId }: { sessionId: string }) {
   };
 
   return (
-    <form className="mx-auto w-full max-w-3xl px-4 pb-4" onSubmit={submit}>
-      <div className="flex items-end gap-2 rounded-2xl border border-border-light bg-surface-primary p-2 shadow-sm">
-        <Textarea
-          value={message}
-          rows={1}
-          className="max-h-40 min-h-10 resize-none border-0 bg-transparent px-2 py-2 text-sm shadow-none focus-visible:ring-0"
-          onChange={(event) => setMessage(event.target.value)}
-          placeholder={localize('com_edgerunner_message_placeholder')}
-        />
-        <Button
-          type="submit"
-          size="icon"
-          disabled={action.isLoading || !message.trim()}
-          aria-label={localize('com_edgerunner_send')}
-          className="size-9 shrink-0"
-        >
-          {action.isLoading ? <Spinner className="size-4" /> : <Send className="size-4" />}
-        </Button>
-      </div>
-    </form>
+    <EdgerunnerComposerShell
+      value={message}
+      rows={1}
+      loading={action.isLoading}
+      ariaLabel={localize('com_edgerunner_send')}
+      placeholder={localize('com_edgerunner_message_placeholder')}
+      onChange={setMessage}
+      onSubmit={submit}
+    />
   );
 }
 
@@ -680,49 +787,90 @@ function SessionControls({ sessionId }: { sessionId: string }) {
   );
 }
 
-function TranscriptIcon({ role }: { role: TranscriptItem['role'] }) {
-  if (role === 'user') {
-    return <MessageSquare className="size-4" aria-hidden="true" />;
-  }
-  if (role === 'tool') {
-    return <TerminalSquare className="size-4" aria-hidden="true" />;
-  }
-  if (role === 'system') {
-    return <Circle className="size-4" aria-hidden="true" />;
-  }
-  return <Bot className="size-4" aria-hidden="true" />;
-}
+const noopAsk: TAskFunction = () => false;
 
-function TranscriptRow({ item }: { item: TranscriptItem }) {
+function TranscriptRow({
+  item,
+  conversationId,
+  isLatestMessage,
+  isSubmitting,
+}: {
+  item: TranscriptItem;
+  conversationId: string;
+  isLatestMessage: boolean;
+  isSubmitting: boolean;
+}) {
   const isUser = item.role === 'user';
+  const message = useMemo<TMessage>(
+    () => ({
+      messageId: item.key,
+      conversationId,
+      parentMessageId: null,
+      responseMessageId: null,
+      text: item.body || item.title,
+      title: item.title,
+      sender: isUser ? 'User' : item.title,
+      endpoint: isUser ? undefined : 'agents',
+      model: isUser ? undefined : 'edgerunner',
+      isCreatedByUser: isUser,
+      createdAt: item.timestamp,
+      updatedAt: item.timestamp,
+      depth: 0,
+      children: [],
+    }),
+    [conversationId, isUser, item.body, item.key, item.timestamp, item.title],
+  );
+  const messageContextValue = useMemo(
+    () => ({
+      messageId: item.key,
+      isLatestMessage,
+      isExpanded: false as const,
+      isSubmitting,
+      conversationId,
+    }),
+    [conversationId, isLatestMessage, isSubmitting, item.key],
+  );
+
   return (
-    <article
-      className={cn('group mx-auto flex w-full max-w-3xl gap-3 px-4 py-3', isUser && 'justify-end')}
-    >
-      {!isUser ? (
-        <div className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-md border border-border-light bg-surface-secondary text-text-secondary">
-          <TranscriptIcon role={item.role} />
-        </div>
-      ) : null}
-      <div
-        className={cn(
-          'min-w-0 rounded-xl px-3 py-2 text-sm',
-          isUser
-            ? 'max-w-[85%] bg-surface-active-alt text-text-primary'
-            : 'flex-1 border border-border-light bg-surface-primary text-text-primary',
-        )}
-      >
-        <div className="mb-1 flex min-w-0 items-center justify-between gap-3">
-          <span className="truncate text-xs font-medium text-text-secondary">{item.title}</span>
-          {item.timestamp ? (
-            <span className="shrink-0 text-xs tabular-nums text-text-tertiary">
-              {item.timestamp}
-            </span>
-          ) : null}
-        </div>
-        {item.body ? <p className="whitespace-pre-wrap leading-6">{item.body}</p> : null}
+    <div className="w-full border-0 bg-transparent text-text-primary">
+      <div className="m-auto justify-center px-4 py-3 sm:px-0">
+        <MessageRow
+          id={item.key}
+          label={isUser ? 'User' : item.title}
+          hoverLabel={isUser ? null : item.title}
+          timestamp={item.timestamp}
+          isCreatedByUser={isUser}
+          icon={
+            <MessageIcon
+              iconData={{
+                endpoint: 'agents',
+                model: 'edgerunner',
+                modelLabel: item.title,
+                isCreatedByUser: false,
+              }}
+            />
+          }
+          footer={<SubRow classes={messageFooterClasses} />}
+        >
+          <MessageContext.Provider value={messageContextValue}>
+            <MessageContent
+              ask={noopAsk}
+              edit={false}
+              error={false}
+              unfinished={false}
+              isSubmitting={isSubmitting}
+              isLast={isLatestMessage}
+              text={message.text || ''}
+              message={message}
+              enterEdit={() => undefined}
+              isCreatedByUser={isUser}
+              siblingIdx={0}
+              setSiblingIdx={() => undefined}
+            />
+          </MessageContext.Provider>
+        </MessageRow>
       </div>
-    </article>
+    </div>
   );
 }
 
@@ -762,10 +910,12 @@ function EventsTranscript({
   transcript,
   loading,
   profiles,
+  conversationId,
 }: {
   transcript: TranscriptItem[];
   loading: boolean;
   profiles: EdgerunnerProfile[];
+  conversationId: string;
 }) {
   if (loading) {
     return (
@@ -783,8 +933,14 @@ function EventsTranscript({
 
   return (
     <div className="py-4">
-      {transcript.map((item) => (
-        <TranscriptRow key={item.key} item={item} />
+      {transcript.map((item, index) => (
+        <TranscriptRow
+          key={item.key}
+          item={item}
+          conversationId={conversationId}
+          isLatestMessage={index === transcript.length - 1}
+          isSubmitting={loading && index === transcript.length - 1}
+        />
       ))}
     </div>
   );
@@ -1001,6 +1157,7 @@ function SessionWorkspace({
               transcript={transcript}
               loading={sessionQuery.isLoading || eventsQuery.isLoading}
               profiles={profiles}
+              conversationId={`edgerunner:${session.id}`}
             />
           ) : (
             <EmptyChat profiles={profiles} />
