@@ -12,6 +12,7 @@ export type EdgerunnerJsonObject = {
 export type EdgerunnerConfigResponse = {
   enabled: boolean;
   protocol: string;
+  profiles?: EdgerunnerProfile[];
   events: {
     transport: string;
     nativeTransport: string;
@@ -33,15 +34,36 @@ export type EdgerunnerRunOptions = EdgerunnerJsonObject & {
 };
 
 export type EdgerunnerCreateSessionRequest = EdgerunnerJsonObject & {
-  title?: string;
+  profile_id?: string;
   repo_url?: string;
   ref?: string;
   prompt?: string;
-  model?: string;
-  agent?: string;
   auto_start?: boolean;
   labels?: Record<string, string>;
-  run?: EdgerunnerRunOptions;
+};
+
+export type EdgerunnerProfile = {
+  id: string;
+  label: string;
+  description?: string;
+};
+
+export type EdgerunnerRepository = {
+  id: string;
+  name: string;
+  full_name: string;
+  private: boolean;
+  default_branch: string;
+  html_url?: string;
+  clone_url?: string;
+  ssh_url?: string;
+  pushed_at?: string;
+  owner?: string;
+};
+
+export type EdgerunnerRepositoriesResponse = {
+  credentialPresent: boolean;
+  repositories: EdgerunnerRepository[];
 };
 
 export type EdgerunnerSession = EdgerunnerJsonObject & {

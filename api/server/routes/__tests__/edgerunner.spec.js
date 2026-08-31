@@ -61,6 +61,8 @@ describe('Edgerunner routes', () => {
       ...originalEnv,
       EDGERUNNER_BASE_URL: 'http://127.0.0.1:8087',
       EDGERUNNER_API_TOKEN: 'test-token',
+      EDGERUNNER_GITHUB_TOKEN: 'github-token',
+      EDGERUNNER_PROFILES: '',
     };
     mockFetch.mockReset();
     mockCheckAccess.mockClear();
@@ -80,6 +82,13 @@ describe('Edgerunner routes', () => {
     expect(response.body).toEqual({
       enabled: true,
       protocol: 'edgerunner-v1',
+      profiles: [
+        {
+          id: 'standard',
+          label: 'Standard',
+          description: 'General coding agent',
+        },
+      ],
       events: {
         transport: 'sse',
         nativeTransport: 'polling',
@@ -125,24 +134,126 @@ describe('Edgerunner routes', () => {
     const response = await request(app)
       .post('/api/edgerunner/sessions')
       .send({
-        title: 'Implement thing',
         repo_url: 'git@github.com:FuturePresentLabs/example.git',
+        prompt: 'Implement thing',
         labels: { project: 'fpl-ai' },
       });
 
     expect(response.status).toBe(201);
     const [, options] = mockFetch.mock.calls[0];
     expect(JSON.parse(options.body)).toEqual({
-      title: 'Implement thing',
+      title: 'FuturePresentLabs/example: Implement thing',
       repo_url: 'git@github.com:FuturePresentLabs/example.git',
+      prompt: 'Implement thing',
+      auto_start: true,
+      run: {
+        retention: 'snapshot',
+      },
       labels: {
         project: 'fpl-ai',
+        'fpl.edgerunner.profile': 'standard',
         'fpl.librechat.user_id': 'user-1',
         'fpl.librechat.tenant_id': 'tenant-1',
         'fpl.librechat.email': 'avery@fpl.dev',
         'fpl.librechat.role': 'USER',
       },
     });
+  });
+
+  it('lists GitHub repositories without exposing the token', async () => {
+    mockFetch.mockResolvedValueOnce(
+      await jsonResponse([
+        {
+          id: 123,
+          name: 'LibreChat',
+          full_name: 'FuturePresentLabs/LibreChat',
+          private: true,
+          default_branch: 'fpl/prod-librechat',
+          html_url: 'https://github.com/FuturePresentLabs/LibreChat',
+          clone_url: 'https://github.com/FuturePresentLabs/LibreChat.git',
+          ssh_url: 'git@github.com:FuturePresentLabs/LibreChat.git',
+          pushed_at: '2026-08-31T01:00:00Z',
+          owner: { login: 'FuturePresentLabs' },
+        },
+      ]),
+    );
+    const app = buildApp();
+
+    const response = await request(app).get('/api/edgerunner/repositories');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      credentialPresent: true,
+      repositories: [
+        {
+          id: '123',
+          name: 'LibreChat',
+          full_name: 'FuturePresentLabs/LibreChat',
+          private: true,
+          default_branch: 'fpl/prod-librechat',
+          html_url: 'https://github.com/FuturePresentLabs/LibreChat',
+          clone_url: 'https://github.com/FuturePresentLabs/LibreChat.git',
+          ssh_url: 'git@github.com:FuturePresentLabs/LibreChat.git',
+          pushed_at: '2026-08-31T01:00:00Z',
+          owner: 'FuturePresentLabs',
+        },
+      ],
+    });
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://api.github.com/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer github-token',
+        }),
+      }),
+    );
+    expect(response.text).not.toContain('github-token');
+  });
+
+  it('applies hidden profile launch options server-side', async () => {
+    process.env.EDGERUNNER_PROFILES = JSON.stringify([
+      {
+        id: 'careful',
+        label: 'Careful',
+        description: 'Runs project checks',
+        agent: 'codex',
+        model: 'fpl/agent',
+        run: {
+          validate: 'npm test',
+          timeout_seconds: 1200,
+        },
+      },
+    ]);
+    mockFetch.mockResolvedValueOnce(await jsonResponse({ id: 'session-1' }, 201));
+    const app = buildApp();
+
+    const response = await request(app)
+      .post('/api/edgerunner/sessions')
+      .send({
+        profile_id: 'careful',
+        repo_url: 'git@github.com:FuturePresentLabs/example.git',
+        prompt: 'Fix the failing tests',
+        run: {
+          validate: 'rm -rf .',
+        },
+      });
+
+    expect(response.status).toBe(201);
+    const [, options] = mockFetch.mock.calls[0];
+    expect(JSON.parse(options.body)).toMatchObject({
+      title: 'FuturePresentLabs/example: Fix the failing tests',
+      run: {
+        validate: 'npm test',
+        timeout_seconds: 1200,
+        model: 'fpl/agent',
+        agent: 'codex',
+        retention: 'snapshot',
+      },
+      labels: {
+        'fpl.edgerunner.profile': 'careful',
+      },
+    });
+    expect(options.body).not.toContain('rm -rf');
   });
 
   it('forwards message actions to the session messages endpoint', async () => {

@@ -955,6 +955,10 @@ export function getEdgerunnerHealth(): Promise<t.EdgerunnerHealthResponse> {
   return request.get(endpoints.edgerunnerHealth());
 }
 
+export function listEdgerunnerRepositories(): Promise<t.EdgerunnerRepositoriesResponse> {
+  return request.get(endpoints.edgerunnerRepositories());
+}
+
 export function listEdgerunnerSessions(): Promise<t.EdgerunnerSessionsResponse> {
   return request.get(endpoints.edgerunnerSessions());
 }

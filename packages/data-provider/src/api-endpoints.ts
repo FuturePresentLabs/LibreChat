@@ -311,6 +311,7 @@ const edgerunnerRoot = `${BASE_URL}/api/edgerunner`;
 
 export const edgerunnerConfig = () => `${edgerunnerRoot}/config`;
 export const edgerunnerHealth = () => `${edgerunnerRoot}/health`;
+export const edgerunnerRepositories = () => `${edgerunnerRoot}/repositories`;
 export const edgerunnerSessions = () => `${edgerunnerRoot}/sessions`;
 export const edgerunnerSession = (sessionId: string) =>
   `${edgerunnerSessions()}/${encodeURIComponent(sessionId)}`;

@@ -97,6 +97,7 @@ export enum QueryKeys {
   subagentThread = 'subagentThread',
   edgerunnerConfig = 'edgerunnerConfig',
   edgerunnerHealth = 'edgerunnerHealth',
+  edgerunnerRepositories = 'edgerunnerRepositories',
   edgerunnerSessions = 'edgerunnerSessions',
   edgerunnerSession = 'edgerunnerSession',
   edgerunnerEvents = 'edgerunnerEvents',

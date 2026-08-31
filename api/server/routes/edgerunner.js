@@ -1,4 +1,5 @@
 const express = require('express');
+const fetch = require('node-fetch');
 const { generateCheckAccess } = require('@librechat/api');
 const { PermissionTypes, Permissions } = require('librechat-data-provider');
 const { getRoleByName } = require('~/models');
@@ -11,6 +12,15 @@ const {
 
 const EVENT_POLL_INTERVAL_MS = 1500;
 const HEARTBEAT_INTERVAL_MS = 15000;
+const GITHUB_API_BASE = 'https://api.github.com';
+
+const DEFAULT_PROFILES = [
+  {
+    id: 'standard',
+    label: 'Standard',
+    description: 'General coding agent',
+  },
+];
 
 const router = express.Router();
 const client = new EdgerunnerClient();
@@ -30,6 +40,152 @@ function sendError(res, error) {
   }
 
   return res.status(500).json({ message: 'Edgerunner route failed' });
+}
+
+function safeString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeProfiles(value) {
+  if (!Array.isArray(value)) {
+    return DEFAULT_PROFILES;
+  }
+
+  const profiles = value
+    .map((profile) => {
+      if (!profile || typeof profile !== 'object') {
+        return null;
+      }
+      const id = safeString(profile.id);
+      const label = safeString(profile.label);
+      if (!id || !label) {
+        return null;
+      }
+      return {
+        ...profile,
+        id,
+        label,
+        description: safeString(profile.description),
+      };
+    })
+    .filter(Boolean);
+
+  return profiles.length > 0 ? profiles : DEFAULT_PROFILES;
+}
+
+function getProfiles() {
+  if (!process.env.EDGERUNNER_PROFILES) {
+    return DEFAULT_PROFILES;
+  }
+
+  try {
+    return normalizeProfiles(JSON.parse(process.env.EDGERUNNER_PROFILES));
+  } catch (_error) {
+    return DEFAULT_PROFILES;
+  }
+}
+
+function publicProfile(profile) {
+  return {
+    id: profile.id,
+    label: profile.label,
+    ...(profile.description && { description: profile.description }),
+  };
+}
+
+function findProfile(profileId) {
+  const profiles = getProfiles();
+  return profiles.find((profile) => profile.id === profileId) || profiles[0];
+}
+
+function repoName(repoUrl) {
+  const value = safeString(repoUrl);
+  if (!value) {
+    return '';
+  }
+  const withoutGit = value.replace(/\.git$/, '');
+  const parts = withoutGit.split(/[/:]/).filter(Boolean);
+  return parts.slice(-2).join('/');
+}
+
+function autoTitle(body) {
+  const prompt = safeString(body.prompt).replace(/\s+/g, ' ');
+  const repo = repoName(body.repo_url);
+  const promptTitle = prompt ? prompt.slice(0, 72) : 'New agent session';
+  return repo ? `${repo}: ${promptTitle}` : promptTitle;
+}
+
+function createSessionPayload(body = {}) {
+  const requestedProfile = safeString(body.profile_id) || safeString(body.profileId);
+  const profile = findProfile(requestedProfile);
+  const profileRun =
+    profile && typeof profile.run === 'object' && !Array.isArray(profile.run) ? profile.run : {};
+
+  const run = {
+    ...profileRun,
+    ...(safeString(profile.model) && { model: safeString(profile.model) }),
+    ...(safeString(profile.agent) && { agent: safeString(profile.agent) }),
+    retention: safeString(profileRun.retention) || 'snapshot',
+  };
+
+  const payload = {
+    ...(safeString(body.repo_url) && { repo_url: safeString(body.repo_url) }),
+    ...(safeString(body.ref) && { ref: safeString(body.ref) }),
+    ...(safeString(body.prompt) && { prompt: safeString(body.prompt) }),
+    title: autoTitle(body),
+    auto_start: body.auto_start !== false,
+    labels: {
+      ...(body.labels || {}),
+      ...(profile?.id && { 'fpl.edgerunner.profile': profile.id }),
+    },
+  };
+
+  if (Object.keys(run).length > 0) {
+    payload.run = run;
+  }
+
+  return payload;
+}
+
+function githubToken(req) {
+  return (
+    safeString(process.env.EDGERUNNER_GITHUB_TOKEN) ||
+    safeString(process.env.GITHUB_TOKEN) ||
+    safeString(process.env.GH_TOKEN) ||
+    safeString(process.env.GITHUB_SKILLS_TOKEN) ||
+    safeString(req.user?.federatedTokens?.access_token) ||
+    safeString(req.user?.openidTokens?.access_token)
+  );
+}
+
+async function githubJson(path, token) {
+  const response = await fetch(`${GITHUB_API_BASE}${path}`, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new EdgerunnerError('GitHub repository lookup failed', response.status, data);
+  }
+  return data;
+}
+
+function normalizeGitHubRepo(repo) {
+  return {
+    id: String(repo.id),
+    name: repo.name,
+    full_name: repo.full_name,
+    private: Boolean(repo.private),
+    default_branch: repo.default_branch || 'main',
+    html_url: repo.html_url,
+    clone_url: repo.clone_url,
+    ssh_url: repo.ssh_url,
+    pushed_at: repo.pushed_at,
+    owner: repo.owner?.login,
+  };
 }
 
 function parseAfter(value) {
@@ -143,11 +299,32 @@ router.get('/config', (_req, res) => {
   res.json({
     enabled: config.enabled,
     protocol: 'edgerunner-v1',
+    profiles: getProfiles().map(publicProfile),
     events: {
       transport: 'sse',
       nativeTransport: 'polling',
     },
   });
+});
+
+router.get('/repositories', async (req, res) => {
+  const token = githubToken(req);
+  if (!token) {
+    return res.json({ repositories: [], credentialPresent: false });
+  }
+
+  try {
+    const repos = await githubJson(
+      '/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member',
+      token,
+    );
+    res.json({
+      credentialPresent: true,
+      repositories: Array.isArray(repos) ? repos.map(normalizeGitHubRepo) : [],
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
 });
 
 router.get('/health', async (_req, res) => {
@@ -169,7 +346,8 @@ router.get('/sessions', async (_req, res) => {
 
 router.post('/sessions', async (req, res) => {
   try {
-    const session = await client.createSession(req.body || {}, req.user);
+    const payload = createSessionPayload(req.body || {});
+    const session = await client.createSession(payload, req.user);
     res.status(201).json(session);
   } catch (error) {
     sendError(res, error);
