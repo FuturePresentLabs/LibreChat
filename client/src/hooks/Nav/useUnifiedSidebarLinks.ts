@@ -3,19 +3,13 @@ import { useRecoilValue } from 'recoil';
 import { BarChart3, MessagesSquare, TerminalSquare } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useUserKeyQuery } from 'librechat-data-provider/react-query';
-import {
-  Permissions,
-  SystemRoles,
-  PermissionTypes,
-  getConfigDefaults,
-  getEndpointField,
-} from 'librechat-data-provider';
+import { SystemRoles, getConfigDefaults, getEndpointField } from 'librechat-data-provider';
 import type { TEndpointsConfig } from 'librechat-data-provider';
 import type { NavLink } from '~/common';
 import { useGetEndpointsQuery, useGetStartupConfig, useInsightsAccessQuery } from '~/data-provider';
 import ConversationsSection from '~/components/UnifiedSidebar/ConversationsSection';
 import useSideNavLinks from '~/hooks/Nav/useSideNavLinks';
-import { useAuthContext, useHasAccess } from '~/hooks';
+import { useAuthContext } from '~/hooks';
 import store from '~/store';
 
 const defaultInterface = getConfigDefaults().interface;
@@ -35,10 +29,6 @@ export default function useUnifiedSidebarLinks() {
     [startupConfig],
   );
   const insightsFeatureEnabled = startupConfig?.insightsEnabled === true;
-  const hasAccessToRemoteAgents = useHasAccess({
-    permissionType: PermissionTypes.REMOTE_AGENTS,
-    permission: Permissions.USE,
-  });
   const { data: insightsAccess } = useInsightsAccessQuery(user?.id, {
     enabled: user?.role === SystemRoles.ADMIN && insightsFeatureEnabled,
   });
@@ -80,19 +70,17 @@ export default function useUnifiedSidebarLinks() {
 
     const nextLinks = [...sideNavLinks];
 
-    if (hasAccessToRemoteAgents) {
-      nextLinks.push({
-        title: 'com_edgerunner_title',
-        label: '',
-        icon: TerminalSquare,
-        id: 'edgerunner',
-        onClick: () => {
-          if (!location.pathname.startsWith('/edgerunner')) {
-            navigate('/edgerunner');
-          }
-        },
-      });
-    }
+    nextLinks.push({
+      title: 'com_edgerunner_title',
+      label: '',
+      icon: TerminalSquare,
+      id: 'edgerunner',
+      onClick: () => {
+        if (!location.pathname.startsWith('/edgerunner')) {
+          navigate('/edgerunner');
+        }
+      },
+    });
 
     if (insightsFeatureEnabled && insightsAccess?.access === true) {
       const insightsLink: NavLink = {
@@ -111,14 +99,7 @@ export default function useUnifiedSidebarLinks() {
     }
 
     return [conversationLink, ...nextLinks];
-  }, [
-    insightsAccess?.access,
-    insightsFeatureEnabled,
-    hasAccessToRemoteAgents,
-    location.pathname,
-    navigate,
-    sideNavLinks,
-  ]);
+  }, [insightsAccess?.access, insightsFeatureEnabled, location.pathname, navigate, sideNavLinks]);
 
   return links;
 }
