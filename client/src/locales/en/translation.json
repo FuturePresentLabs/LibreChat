@@ -1744,6 +1744,7 @@
   "com_edgerunner_message_label": "Message",
   "com_edgerunner_message_placeholder": "Reply to the agent",
   "com_edgerunner_message_sent": "Message sent",
+  "com_edgerunner_mode_switcher": "Chat mode",
   "com_edgerunner_model_label": "Model",
   "com_edgerunner_new_session": "New session",
   "com_edgerunner_no_artifacts": "No artifacts yet",
