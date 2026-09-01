@@ -202,6 +202,13 @@ describe('Edgerunner routes', () => {
       prompt: 'Implement thing',
     });
     const [, options] = mockFetch.mock.calls[0];
+    expect(options.headers).toEqual(
+      expect.objectContaining({
+        authorization: 'Bearer test-token',
+        'x-fpl-user-email': 'avery@fpl.dev',
+        'x-fpl-user-subject': 'user-1',
+      }),
+    );
     expect(JSON.parse(options.body)).toEqual({
       title: 'FuturePresentLabs/example: Implement thing',
       repo_url: 'git@github.com:FuturePresentLabs/example.git',
@@ -255,6 +262,12 @@ describe('Edgerunner routes', () => {
     });
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(mockFetch.mock.calls[0][0]).toBe('http://127.0.0.1:8087/v1/sessions');
+    expect(mockFetch.mock.calls[0][1].headers).toEqual(
+      expect.objectContaining({
+        'x-fpl-user-email': 'avery@fpl.dev',
+        'x-fpl-user-subject': 'user-1',
+      }),
+    );
     expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toMatchObject({
       prompt: 'Fix the startup flow',
       auto_start: false,
@@ -267,6 +280,12 @@ describe('Edgerunner routes', () => {
       },
     });
     expect(mockFetch.mock.calls[1][0]).toBe('http://127.0.0.1:8087/v1/sessions/session-1/messages');
+    expect(mockFetch.mock.calls[1][1].headers).toEqual(
+      expect.objectContaining({
+        'x-fpl-user-email': 'avery@fpl.dev',
+        'x-fpl-user-subject': 'user-1',
+      }),
+    );
     expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toMatchObject({
       content: 'Fix the startup flow',
       start_run: true,

@@ -195,6 +195,7 @@ class EdgerunnerClient {
     return this.request('/v1/sessions', {
       method: 'POST',
       body: withActorLabels(body, user),
+      headers: identityHeaders(user),
     });
   }
 
@@ -210,6 +211,7 @@ class EdgerunnerClient {
     return this.request(`/v1/sessions/${encodeURIComponent(sessionId)}/messages`, {
       method: 'POST',
       body: withActorLabels(body, user),
+      headers: identityHeaders(user),
     });
   }
 
