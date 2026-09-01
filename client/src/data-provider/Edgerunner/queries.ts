@@ -6,6 +6,7 @@ import type {
   EdgerunnerEvent,
   EdgerunnerSession,
   EdgerunnerLogsResponse,
+  EdgerunnerMessagesResponse,
   EdgerunnerConfigResponse,
   EdgerunnerEventsResponse,
   EdgerunnerHealthResponse,
@@ -23,6 +24,10 @@ const streamEventNames = [
   'edgerunner.event',
   'session_created',
   'message',
+  'message_delta',
+  'message_completed',
+  'assistant_message',
+  'assistant_delta',
   'run_started',
   'agent_started',
   'agent_progress',
@@ -38,6 +43,17 @@ const streamEventNames = [
   'run_completed',
   'run_failed',
   'approval',
+  'approval_requested',
+  'approval_resolved',
+  'tool_call',
+  'tool_call_started',
+  'tool_call_delta',
+  'tool_call_completed',
+  'tool_result',
+  'tool_result_delta',
+  'stdout',
+  'stderr',
+  'log',
 ];
 
 export const getEdgerunnerSessions = (
@@ -56,6 +72,12 @@ export const getEdgerunnerEvents = (
     return response;
   }
   return response?.events ?? response?.data ?? [];
+};
+
+export const getEdgerunnerMessages = (
+  response: EdgerunnerMessagesResponse | undefined,
+): NonNullable<EdgerunnerMessagesResponse['messages']> => {
+  return response?.messages ?? response?.data ?? [];
 };
 
 export const getEdgerunnerEventId = (event: EdgerunnerEvent): number | undefined => {
@@ -201,6 +223,23 @@ export const useEdgerunnerEventsQuery = (
   );
 };
 
+export const useEdgerunnerMessagesQuery = (
+  sessionId: string | null | undefined,
+  config?: UseQueryOptions<EdgerunnerMessagesResponse>,
+): QueryObserverResult<EdgerunnerMessagesResponse> => {
+  return useQuery<EdgerunnerMessagesResponse>(
+    [QueryKeys.edgerunnerMessages, sessionId],
+    () => dataService.listEdgerunnerMessages(sessionId ?? ''),
+    {
+      enabled: Boolean(sessionId),
+      refetchOnWindowFocus: true,
+      refetchInterval: ACTIVE_SESSION_REFRESH_MS,
+      retry: false,
+      ...config,
+    },
+  );
+};
+
 export const useEdgerunnerLogsQuery = (
   sessionId: string | null | undefined,
   config?: UseQueryOptions<EdgerunnerLogsResponse>,
@@ -240,6 +279,7 @@ const appendStreamEvent = (queryClient: QueryClient, sessionId: string, event: E
     [QueryKeys.edgerunnerEvents, sessionId],
     (current) => mergeEvents(current, event),
   );
+  queryClient.invalidateQueries([QueryKeys.edgerunnerMessages, sessionId]);
 };
 
 export const useEdgerunnerEventStream = (sessionId: string | null | undefined, enabled = true) => {

@@ -41,6 +41,7 @@ export const useEdgerunnerActionMutation = (): UseMutationResult<
       onSuccess: (_response, variables) => {
         queryClient.invalidateQueries([QueryKeys.edgerunnerSessions]);
         queryClient.invalidateQueries([QueryKeys.edgerunnerSession, variables.sessionId]);
+        queryClient.invalidateQueries([QueryKeys.edgerunnerMessages, variables.sessionId]);
         queryClient.invalidateQueries([QueryKeys.edgerunnerEvents, variables.sessionId]);
         queryClient.invalidateQueries([QueryKeys.edgerunnerLogs, variables.sessionId]);
         queryClient.invalidateQueries([QueryKeys.edgerunnerArtifacts, variables.sessionId]);

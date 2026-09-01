@@ -369,6 +369,14 @@ router.get('/sessions/:sessionId', async (req, res) => {
   }
 });
 
+router.get('/sessions/:sessionId/messages', async (req, res) => {
+  try {
+    res.json(await client.listMessages(req.params.sessionId));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
 router.post('/sessions/:sessionId/messages', async (req, res) => {
   try {
     res.json(await client.sendMessage(req.params.sessionId, req.body || {}, req.user));

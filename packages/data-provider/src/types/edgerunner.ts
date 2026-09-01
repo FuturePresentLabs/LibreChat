@@ -117,6 +117,24 @@ export type EdgerunnerEventsResponse =
       data?: EdgerunnerEvent[];
     };
 
+export type EdgerunnerMessageRole = 'user' | 'assistant' | 'system' | 'tool' | string;
+
+export type EdgerunnerTranscriptMessage = EdgerunnerJsonObject & {
+  id?: number | string;
+  session_id?: string;
+  run_id?: string;
+  role?: EdgerunnerMessageRole;
+  content?: string;
+  data?: EdgerunnerJson;
+  created_at?: number | string;
+};
+
+export type EdgerunnerMessagesResponse = EdgerunnerJsonObject & {
+  session_id?: string;
+  messages?: EdgerunnerTranscriptMessage[];
+  data?: EdgerunnerTranscriptMessage[];
+};
+
 export type EdgerunnerLogsResponse = EdgerunnerJsonObject & {
   session_id?: string;
   run_id?: string;

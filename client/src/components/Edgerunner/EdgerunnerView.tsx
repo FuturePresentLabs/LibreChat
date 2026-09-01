@@ -38,15 +38,18 @@ import type {
   TMessage,
   EdgerunnerEvent,
   EdgerunnerJson,
+  EdgerunnerJsonObject,
   EdgerunnerProfile,
   EdgerunnerSession,
   EdgerunnerArtifact,
   EdgerunnerBranch,
   EdgerunnerRepository,
+  EdgerunnerTranscriptMessage,
   EdgerunnerCreateSessionRequest,
 } from 'librechat-data-provider';
 import {
   getEdgerunnerEvents,
+  getEdgerunnerMessages,
   getEdgerunnerSessions,
   useEdgerunnerLogsQuery,
   useEdgerunnerConfigQuery,
@@ -55,6 +58,7 @@ import {
   useEdgerunnerHealthQuery,
   useEdgerunnerSessionQuery,
   useEdgerunnerEventStream,
+  useEdgerunnerMessagesQuery,
   useEdgerunnerSessionsQuery,
   useEdgerunnerBranchesQuery,
   useEdgerunnerArtifactsQuery,
@@ -178,12 +182,73 @@ const statusTone = (status?: string) => {
   return 'border-border-light bg-surface-tertiary text-text-secondary';
 };
 
+const isJsonObject = (value: EdgerunnerJson | undefined): value is EdgerunnerJsonObject =>
+  Boolean(value && typeof value === 'object' && !Array.isArray(value));
+
+const stringValue = (value: EdgerunnerJson | undefined): string | undefined =>
+  typeof value === 'string' && value.trim() ? value.trim() : undefined;
+
+const firstString = (...values: Array<EdgerunnerJson | undefined>): string | undefined => {
+  for (const value of values) {
+    const next = stringValue(value);
+    if (next) {
+      return next;
+    }
+  }
+  return undefined;
+};
+
+const transcriptRole = (value: EdgerunnerJson | undefined): TranscriptItem['role'] | undefined => {
+  const role = stringValue(value)?.toLowerCase();
+  if (role === 'user' || role === 'system' || role === 'tool') {
+    return role;
+  }
+  if (role === 'assistant' || role === 'agent') {
+    return 'agent';
+  }
+  return undefined;
+};
+
+const eventPayload = (event: EdgerunnerEvent): EdgerunnerJsonObject | undefined => {
+  const data = isJsonObject(event.data) ? event.data : undefined;
+  const report = isJsonObject(data?.report) ? data.report : undefined;
+  return report ?? data;
+};
+
+const nestedMessagePayload = (
+  payload: EdgerunnerJsonObject | undefined,
+): EdgerunnerJsonObject | undefined => {
+  return isJsonObject(payload?.message) ? payload.message : undefined;
+};
+
+const roleTitle = (role: TranscriptItem['role']): string => {
+  if (role === 'user') {
+    return 'User';
+  }
+  if (role === 'tool') {
+    return 'Tool';
+  }
+  if (role === 'system') {
+    return 'System';
+  }
+  return 'Assistant';
+};
+
 const eventRole = (event: EdgerunnerEvent): TranscriptItem['role'] => {
   const kind = String(event.kind ?? '').toLowerCase();
+  const payload = eventPayload(event);
+  const message = nestedMessagePayload(payload);
+  const role = transcriptRole(event.role ?? payload?.role ?? message?.role);
+  if (role) {
+    return role;
+  }
+  if (kind.includes('tool') || kind.includes('call') || kind.includes('bash')) {
+    return 'tool';
+  }
   if (kind.includes('user') || kind === 'message') {
     return 'user';
   }
-  if (kind.includes('tool') || kind.includes('call') || kind.includes('bash')) {
+  if (kind.includes('stdout') || kind.includes('stderr') || kind === 'log') {
     return 'tool';
   }
   if (kind.includes('system') || kind.includes('status')) {
@@ -194,6 +259,23 @@ const eventRole = (event: EdgerunnerEvent): TranscriptItem['role'] => {
 
 const eventTitle = (event: EdgerunnerEvent): string => {
   const kind = String(event.kind || 'Agent update');
+  const payload = eventPayload(event);
+  const toolName = firstString(
+    payload?.tool_name,
+    payload?.tool,
+    payload?.name,
+    payload?.command,
+    payload?.action,
+  );
+  if (toolName && eventRole(event) === 'tool') {
+    return toolName;
+  }
+  if (kind === 'agent_progress' && firstString(payload?.content)) {
+    return 'Assistant';
+  }
+  if (kind === 'message') {
+    return eventRole(event) === 'user' ? 'User' : 'Assistant';
+  }
   return kind
     .replace(/[_-]+/g, ' ')
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
@@ -201,38 +283,72 @@ const eventTitle = (event: EdgerunnerEvent): string => {
 };
 
 const eventBody = (event: EdgerunnerEvent): string | undefined => {
+  const payload = eventPayload(event);
+  const message = nestedMessagePayload(payload);
+  const body = firstString(
+    payload?.content,
+    payload?.question,
+    message?.content,
+    event.output,
+    event.delta,
+    event.text,
+  );
+  if (body) {
+    return body;
+  }
   if (typeof event.message === 'string' && event.message.trim()) {
     return event.message.trim();
   }
-  const data = event.data ?? event.output ?? event.delta ?? event.text;
-  return typeof data === 'string' && data.trim() ? data.trim() : undefined;
+  return undefined;
 };
 
-const transcriptFromEvents = (events: EdgerunnerEvent[], session: EdgerunnerSession) => {
+const transcriptFromMessages = (
+  messages: EdgerunnerTranscriptMessage[],
+  session: EdgerunnerSession,
+) => {
   const transcript: TranscriptItem[] = [];
+  const firstUserMessage = messages.find((message) => transcriptRole(message.role) === 'user');
   if (session.prompt) {
-    transcript.push({
-      key: `${session.id}-prompt`,
-      role: 'user',
-      title: 'Request',
-      body: String(session.prompt),
-      timestamp: messageTimestamp(session.created_at),
-    });
+    const prompt = String(session.prompt);
+    if (!firstUserMessage || firstUserMessage.content !== prompt) {
+      transcript.push({
+        key: `${session.id}-prompt`,
+        role: 'user',
+        title: 'Request',
+        body: prompt,
+        timestamp: messageTimestamp(session.created_at),
+      });
+    }
   }
 
-  for (const [index, event] of events.entries()) {
+  for (const [index, message] of messages.entries()) {
+    const role = transcriptRole(message.role) ?? 'agent';
     transcript.push({
-      key: `${event.id ?? 'event'}-${index}`,
-      role: eventRole(event),
-      title: eventTitle(event),
-      body: eventBody(event),
-      timestamp: messageTimestamp(event.created_at ?? event.ts),
-      raw: event,
+      key: `${message.id ?? 'message'}-${index}`,
+      role,
+      title: roleTitle(role),
+      body: message.content,
+      timestamp: messageTimestamp(message.created_at),
+      raw: message.data,
     });
   }
 
   return transcript;
 };
+
+const transcriptFromEvents = (events: EdgerunnerEvent[], session: EdgerunnerSession) =>
+  transcriptFromMessages([], session).concat(
+    events
+      .filter((event) => String(event.kind ?? '').toLowerCase() !== 'agent_heartbeat')
+      .map((event, index) => ({
+        key: `${event.id ?? 'event'}-${index}`,
+        role: eventRole(event),
+        title: eventTitle(event),
+        body: eventBody(event),
+        timestamp: messageTimestamp(event.created_at ?? event.ts),
+        raw: event,
+      })),
+  );
 
 const profileLabel = (profiles: EdgerunnerProfile[], profileId: string): string => {
   if (!profileId) {
@@ -1262,17 +1378,23 @@ function SessionWorkspace({
 }) {
   const localize = useLocalize();
   const sessionQuery = useEdgerunnerSessionQuery(sessionId);
+  const messagesQuery = useEdgerunnerMessagesQuery(sessionId);
   const eventsQuery = useEdgerunnerEventsQuery(sessionId);
   const logsQuery = useEdgerunnerLogsQuery(sessionId);
   const artifactsQuery = useEdgerunnerArtifactsQuery(sessionId);
   useEdgerunnerEventStream(sessionId, Boolean(sessionId));
 
+  const messages = useMemo(() => getEdgerunnerMessages(messagesQuery.data), [messagesQuery.data]);
   const events = useMemo(() => getEdgerunnerEvents(eventsQuery.data), [eventsQuery.data]);
   const session = sessionQuery.data;
-  const transcript = useMemo(
-    () => (session ? transcriptFromEvents(events, session) : []),
-    [events, session],
-  );
+  const transcript = useMemo(() => {
+    if (!session) {
+      return [];
+    }
+    return messages.length > 0
+      ? transcriptFromMessages(messages, session)
+      : transcriptFromEvents(events, session);
+  }, [events, messages, session]);
   const logLines = logsQuery.data?.lines ?? [];
   const artifacts = Array.isArray(artifactsQuery.data)
     ? artifactsQuery.data
@@ -1284,6 +1406,7 @@ function SessionWorkspace({
       return;
     }
     void sessionQuery.refetch();
+    void messagesQuery.refetch();
     void eventsQuery.refetch();
     void logsQuery.refetch();
     void artifactsQuery.refetch();
@@ -1330,7 +1453,7 @@ function SessionWorkspace({
           {session ? (
             <EventsTranscript
               transcript={transcript}
-              loading={sessionQuery.isLoading || eventsQuery.isLoading}
+              loading={sessionQuery.isLoading || messagesQuery.isLoading || eventsQuery.isLoading}
               profiles={profiles}
               conversationId={`edgerunner:${session.id}`}
             />

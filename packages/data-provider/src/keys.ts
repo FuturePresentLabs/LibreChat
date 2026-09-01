@@ -101,6 +101,7 @@ export enum QueryKeys {
   edgerunnerBranches = 'edgerunnerBranches',
   edgerunnerSessions = 'edgerunnerSessions',
   edgerunnerSession = 'edgerunnerSession',
+  edgerunnerMessages = 'edgerunnerMessages',
   edgerunnerEvents = 'edgerunnerEvents',
   edgerunnerLogs = 'edgerunnerLogs',
   edgerunnerArtifacts = 'edgerunnerArtifacts',

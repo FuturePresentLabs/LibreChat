@@ -988,6 +988,10 @@ export function listEdgerunnerEvents(
   return request.get(endpoints.edgerunnerSessionEvents(sessionId, after));
 }
 
+export function listEdgerunnerMessages(sessionId: string): Promise<t.EdgerunnerMessagesResponse> {
+  return request.get(endpoints.edgerunnerSessionMessages(sessionId));
+}
+
 export function listEdgerunnerLogs(sessionId: string): Promise<t.EdgerunnerLogsResponse> {
   return request.get(endpoints.edgerunnerSessionLogs(sessionId));
 }

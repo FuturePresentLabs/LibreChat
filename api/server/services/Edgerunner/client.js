@@ -202,6 +202,10 @@ class EdgerunnerClient {
     return this.request(`/v1/sessions/${encodeURIComponent(sessionId)}`);
   }
 
+  listMessages(sessionId) {
+    return this.request(`/v1/sessions/${encodeURIComponent(sessionId)}/messages`);
+  }
+
   sendMessage(sessionId, body, user) {
     return this.request(`/v1/sessions/${encodeURIComponent(sessionId)}/messages`, {
       method: 'POST',

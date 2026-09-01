@@ -361,6 +361,22 @@ describe('Edgerunner routes', () => {
     });
   });
 
+  it('lists readable session messages from Edgerunner', async () => {
+    mockFetch.mockResolvedValueOnce(
+      await jsonResponse({
+        session_id: 'session-1',
+        messages: [{ id: 1, role: 'assistant', content: 'Done.' }],
+      }),
+    );
+    const app = buildApp();
+
+    const response = await request(app).get('/api/edgerunner/sessions/session-1/messages');
+
+    expect(response.status).toBe(200);
+    expect(response.body.messages[0]).toMatchObject({ role: 'assistant', content: 'Done.' });
+    expect(mockFetch.mock.calls[0][0]).toBe('http://127.0.0.1:8087/v1/sessions/session-1/messages');
+  });
+
   it('forwards cancel actions to the native cancel endpoint', async () => {
     mockFetch.mockResolvedValueOnce(await jsonResponse({ id: 'session-1', status: 'canceled' }));
     const app = buildApp();
