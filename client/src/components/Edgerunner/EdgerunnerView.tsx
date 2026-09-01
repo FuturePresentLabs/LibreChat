@@ -13,6 +13,7 @@ import {
   RefreshCw,
   ShieldCheck,
   TerminalSquare,
+  Wrench,
 } from 'lucide-react';
 import {
   Button,
@@ -38,13 +39,11 @@ import type {
   TMessage,
   EdgerunnerEvent,
   EdgerunnerJson,
-  EdgerunnerJsonObject,
   EdgerunnerProfile,
   EdgerunnerSession,
   EdgerunnerArtifact,
   EdgerunnerBranch,
   EdgerunnerRepository,
-  EdgerunnerTranscriptMessage,
   EdgerunnerCreateSessionRequest,
 } from 'librechat-data-provider';
 import {
@@ -68,7 +67,7 @@ import {
 import { useDebounce, useDocumentTitle, useLocalize } from '~/hooks';
 import MessageContent from '~/components/Chat/Messages/Content/MessageContent';
 import MessageIcon from '~/components/Chat/Messages/MessageIcon';
-import MessageRow from '~/components/Chat/Messages/ui/MessageRow';
+import MessageRow, { getMessageRowWidthClass } from '~/components/Chat/Messages/ui/MessageRow';
 import { messageFooterClasses } from '~/components/Chat/Messages/styles';
 import OpenSidebar from '~/components/Chat/Menus/OpenSidebar';
 import SubRow from '~/components/Chat/Messages/SubRow';
@@ -76,6 +75,7 @@ import { MessageContext } from '~/Providers';
 import { mainTextareaId, type OptionWithIcon, type TAskFunction } from '~/common';
 import { cn, removeFocusRings } from '~/utils';
 import type { FormEvent, ReactNode } from 'react';
+import { transcriptFromEvents, transcriptFromMessages, type TranscriptItem } from './transcript';
 
 type DraftState = {
   repo: string;
@@ -84,23 +84,9 @@ type DraftState = {
   prompt: string;
 };
 
-type TranscriptItem = {
-  key: string;
-  role: 'user' | 'agent' | 'tool' | 'system';
-  title: string;
-  body?: string;
-  timestamp?: string;
-  raw?: EdgerunnerJson;
-};
-
 const DEFAULT_REPO_VALUE = '__manual__';
 const DEFAULT_PROFILE_VALUE = '__default__';
 const NEW_SESSION_VALUE = '__new_session__';
-const ESCAPE_CHARACTER = String.fromCharCode(27);
-const ANSI_ESCAPE_PATTERN = new RegExp(`${ESCAPE_CHARACTER}\\[[0-?]*[ -/]*[@-~]`, 'g');
-const LITERAL_ANSI_ESCAPE_PATTERN = /\\u001b|\\x1b|\\e/gi;
-const ORPHANED_ANSI_SGR_PATTERN = /\[(?:\d{1,3}(?:;\d{1,3})*)?m/g;
-const BACKSPACE_CHARACTER = String.fromCharCode(8);
 const TRANSCRIPT_FOLLOW_THRESHOLD_PX = 160;
 
 const emptyDraft: DraftState = {
@@ -126,16 +112,6 @@ const formatTimestamp = (value: number | string | undefined): string => {
     hour: 'numeric',
     minute: '2-digit',
   }).format(date);
-};
-
-const messageTimestamp = (value: number | string | undefined): string | undefined => {
-  if (value == null || value === '') {
-    return undefined;
-  }
-  const numeric = typeof value === 'number' ? value : Number(value);
-  const timestamp = Number.isFinite(numeric) ? numeric : Date.parse(String(value));
-  const date = new Date(timestamp);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 };
 
 const jsonPreview = (value: EdgerunnerJson | undefined): string => {
@@ -187,224 +163,6 @@ const statusTone = (status?: string) => {
   }
   return 'border-border-light bg-surface-tertiary text-text-secondary';
 };
-
-const normalizeTranscriptText = (value: string): string => {
-  let normalized = value
-    .replace(LITERAL_ANSI_ESCAPE_PATTERN, ESCAPE_CHARACTER)
-    .replace(ANSI_ESCAPE_PATTERN, '')
-    .replace(ORPHANED_ANSI_SGR_PATTERN, '')
-    .replace(/\r\n?/g, '\n');
-  while (normalized.includes(BACKSPACE_CHARACTER)) {
-    const next = normalized.replace(BACKSPACE_CHARACTER, '');
-    if (next === normalized) {
-      break;
-    }
-    normalized = next;
-  }
-  return normalized.replace(/[^\S\n]+$/gm, '').trim();
-};
-
-const isJsonObject = (value: EdgerunnerJson | undefined): value is EdgerunnerJsonObject =>
-  Boolean(value && typeof value === 'object' && !Array.isArray(value));
-
-const stringValue = (value: EdgerunnerJson | undefined): string | undefined => {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-  const normalized = normalizeTranscriptText(value);
-  return normalized || undefined;
-};
-
-const firstString = (...values: Array<EdgerunnerJson | undefined>): string | undefined => {
-  for (const value of values) {
-    const next = stringValue(value);
-    if (next) {
-      return next;
-    }
-  }
-  return undefined;
-};
-
-const transcriptRole = (value: EdgerunnerJson | undefined): TranscriptItem['role'] | undefined => {
-  const role = stringValue(value)?.toLowerCase();
-  if (role === 'user' || role === 'system' || role === 'tool') {
-    return role;
-  }
-  if (role === 'assistant' || role === 'agent') {
-    return 'agent';
-  }
-  return undefined;
-};
-
-const eventPayload = (event: EdgerunnerEvent): EdgerunnerJsonObject | undefined => {
-  const data = isJsonObject(event.data) ? event.data : undefined;
-  const report = isJsonObject(data?.report) ? data.report : undefined;
-  return report ?? data;
-};
-
-const nestedMessagePayload = (
-  payload: EdgerunnerJsonObject | undefined,
-): EdgerunnerJsonObject | undefined => {
-  return isJsonObject(payload?.message) ? payload.message : undefined;
-};
-
-const roleTitle = (role: TranscriptItem['role']): string => {
-  if (role === 'user') {
-    return 'User';
-  }
-  if (role === 'tool') {
-    return 'Tool';
-  }
-  if (role === 'system') {
-    return 'System';
-  }
-  return 'Assistant';
-};
-
-const promptFromSessionTitle = (session: EdgerunnerSession): string | undefined => {
-  const title = stringValue(session.title);
-  if (!title || title.toLowerCase() === 'new agent session') {
-    return undefined;
-  }
-
-  const repo = repoDisplayName(session.repo_url);
-  const repoPrefix = repo ? `${repo}: ` : '';
-  if (repoPrefix && title.startsWith(repoPrefix)) {
-    return title.slice(repoPrefix.length).trim() || undefined;
-  }
-
-  return title.replace(/^[^:\s]+\/[^:]+:\s+/, '').trim() || undefined;
-};
-
-const sessionPrompt = (session: EdgerunnerSession): string | undefined =>
-  firstString(
-    session.prompt,
-    session.initial_prompt,
-    session.initialPrompt,
-    session.input,
-    session.request,
-  ) ?? promptFromSessionTitle(session);
-
-const messageBody = (message: EdgerunnerTranscriptMessage): string | undefined => {
-  const data = isJsonObject(message.data) ? message.data : undefined;
-  return firstString(message.content, data?.content, data?.text, data?.message, message.text);
-};
-
-const eventRole = (event: EdgerunnerEvent): TranscriptItem['role'] => {
-  const kind = String(event.kind ?? '').toLowerCase();
-  const payload = eventPayload(event);
-  const message = nestedMessagePayload(payload);
-  const role = transcriptRole(event.role ?? payload?.role ?? message?.role);
-  if (role) {
-    return role;
-  }
-  if (kind.includes('tool') || kind.includes('call') || kind.includes('bash')) {
-    return 'tool';
-  }
-  if (kind.includes('user') || kind === 'message') {
-    return 'user';
-  }
-  if (kind.includes('stdout') || kind.includes('stderr') || kind === 'log') {
-    return 'tool';
-  }
-  if (kind.includes('system') || kind.includes('status')) {
-    return 'system';
-  }
-  return 'agent';
-};
-
-const eventTitle = (event: EdgerunnerEvent): string => {
-  const kind = String(event.kind || 'Agent update');
-  const payload = eventPayload(event);
-  const toolName = firstString(
-    payload?.tool_name,
-    payload?.tool,
-    payload?.name,
-    payload?.command,
-    payload?.action,
-  );
-  if (toolName && eventRole(event) === 'tool') {
-    return toolName;
-  }
-  if (kind === 'agent_progress' && firstString(payload?.content)) {
-    return 'Assistant';
-  }
-  if (kind === 'message') {
-    return eventRole(event) === 'user' ? 'User' : 'Assistant';
-  }
-  return kind
-    .replace(/[_-]+/g, ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
-    .trim();
-};
-
-const eventBody = (event: EdgerunnerEvent): string | undefined => {
-  const payload = eventPayload(event);
-  const message = nestedMessagePayload(payload);
-  const body = firstString(
-    payload?.content,
-    payload?.question,
-    message?.content,
-    event.output,
-    event.delta,
-    event.text,
-  );
-  if (body) {
-    return body;
-  }
-  if (typeof event.message === 'string' && event.message.trim()) {
-    return event.message.trim();
-  }
-  return undefined;
-};
-
-const transcriptFromMessages = (
-  messages: EdgerunnerTranscriptMessage[],
-  session: EdgerunnerSession,
-) => {
-  const transcript: TranscriptItem[] = [];
-  const firstUserMessage = messages.find((message) => transcriptRole(message.role) === 'user');
-  const prompt = sessionPrompt(session);
-  if (prompt) {
-    if (!firstUserMessage || messageBody(firstUserMessage) !== prompt) {
-      transcript.push({
-        key: `${session.id}-prompt`,
-        role: 'user',
-        title: 'Request',
-        body: prompt,
-        timestamp: messageTimestamp(session.created_at),
-      });
-    }
-  }
-
-  for (const [index, message] of messages.entries()) {
-    const role = transcriptRole(message.role) ?? 'agent';
-    transcript.push({
-      key: `${message.id ?? 'message'}-${index}`,
-      role,
-      title: roleTitle(role),
-      body: messageBody(message),
-      timestamp: messageTimestamp(message.created_at),
-      raw: message.data,
-    });
-  }
-
-  return transcript;
-};
-
-const transcriptFromEvents = (events: EdgerunnerEvent[], session: EdgerunnerSession) =>
-  transcriptFromMessages([], session).concat(
-    events
-      .filter((event) => String(event.kind ?? '').toLowerCase() !== 'agent_heartbeat')
-      .map((event, index) => ({
-        key: `${event.id ?? 'event'}-${index}`,
-        role: eventRole(event),
-        title: eventTitle(event),
-        body: eventBody(event),
-        timestamp: messageTimestamp(event.created_at ?? event.ts),
-        raw: event,
-      })),
-  );
 
 const profileLabel = (profiles: EdgerunnerProfile[], profileId: string): string => {
   if (!profileId) {
@@ -1052,7 +810,64 @@ function SessionControls({ sessionId }: { sessionId: string }) {
 
 const noopAsk: TAskFunction = () => false;
 
-function TranscriptRow({
+const activityToneClasses = (tone: TranscriptItem['tone']) => {
+  if (tone === 'error') {
+    return 'border-status-error-border bg-status-error-subtle text-status-error';
+  }
+  if (tone === 'success') {
+    return 'border-status-success-border bg-status-success-subtle text-status-success';
+  }
+  if (tone === 'warning') {
+    return 'border-status-warning-border bg-status-warning-subtle text-status-warning';
+  }
+  if (tone === 'running') {
+    return 'border-status-info-border bg-status-info-subtle text-status-info';
+  }
+  return 'border-border-light bg-surface-secondary text-text-secondary';
+};
+
+function ActivityTranscriptRow({ item }: { item: TranscriptItem }) {
+  const hasBody = Boolean(item.body);
+
+  return (
+    <div className="w-full border-0 bg-transparent text-text-primary">
+      <div className="m-auto px-4 py-1.5 sm:px-0">
+        <div
+          className={cn(
+            'message-render mx-auto flex min-w-0 flex-1 font-theme-ui',
+            getMessageRowWidthClass(),
+          )}
+        >
+          <details
+            className={cn(
+              'group ml-0 min-w-0 max-w-full rounded-md border text-sm md:ml-8',
+              activityToneClasses(item.tone),
+            )}
+            open={hasBody && !item.collapsed}
+          >
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 [&::-webkit-details-marker]:hidden">
+              <Wrench className="size-4 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate font-medium">{item.title}</span>
+              {hasBody ? (
+                <ChevronDown
+                  className="size-4 shrink-0 transition-transform group-open:rotate-180"
+                  aria-hidden="true"
+                />
+              ) : null}
+            </summary>
+            {hasBody ? (
+              <pre className="max-h-72 overflow-auto whitespace-pre-wrap border-t border-border-light px-3 py-2 font-mono text-xs leading-relaxed text-text-primary">
+                {item.body}
+              </pre>
+            ) : null}
+          </details>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MessageTranscriptRow({
   item,
   conversationId,
   isLatestMessage,
@@ -1134,6 +949,31 @@ function TranscriptRow({
         </MessageRow>
       </div>
     </div>
+  );
+}
+
+function TranscriptRow({
+  item,
+  conversationId,
+  isLatestMessage,
+  isSubmitting,
+}: {
+  item: TranscriptItem;
+  conversationId: string;
+  isLatestMessage: boolean;
+  isSubmitting: boolean;
+}) {
+  if (item.kind === 'activity') {
+    return <ActivityTranscriptRow item={item} />;
+  }
+
+  return (
+    <MessageTranscriptRow
+      item={item}
+      conversationId={conversationId}
+      isLatestMessage={isLatestMessage}
+      isSubmitting={isSubmitting}
+    />
   );
 }
 
