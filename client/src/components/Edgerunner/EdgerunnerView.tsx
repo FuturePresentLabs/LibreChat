@@ -96,6 +96,10 @@ type TranscriptItem = {
 const DEFAULT_REPO_VALUE = '__manual__';
 const DEFAULT_PROFILE_VALUE = '__default__';
 const NEW_SESSION_VALUE = '__new_session__';
+const ESCAPE_CHARACTER = String.fromCharCode(27);
+const ANSI_ESCAPE_PATTERN = new RegExp(`${ESCAPE_CHARACTER}\\[[0-?]*[ -/]*[@-~]`, 'g');
+const ORPHANED_ANSI_SGR_PATTERN = /\[(?:\d{1,3}(?:;\d{1,3})*)?m/g;
+const BACKSPACE_CHARACTER = String.fromCharCode(8);
 
 const emptyDraft: DraftState = {
   repo: '',
@@ -182,11 +186,31 @@ const statusTone = (status?: string) => {
   return 'border-border-light bg-surface-tertiary text-text-secondary';
 };
 
+const normalizeTranscriptText = (value: string): string => {
+  let normalized = value
+    .replace(ANSI_ESCAPE_PATTERN, '')
+    .replace(ORPHANED_ANSI_SGR_PATTERN, '')
+    .replace(/\r\n?/g, '\n');
+  while (normalized.includes(BACKSPACE_CHARACTER)) {
+    const next = normalized.replace(BACKSPACE_CHARACTER, '');
+    if (next === normalized) {
+      break;
+    }
+    normalized = next;
+  }
+  return normalized.replace(/[^\S\n]+$/gm, '').trim();
+};
+
 const isJsonObject = (value: EdgerunnerJson | undefined): value is EdgerunnerJsonObject =>
   Boolean(value && typeof value === 'object' && !Array.isArray(value));
 
-const stringValue = (value: EdgerunnerJson | undefined): string | undefined =>
-  typeof value === 'string' && value.trim() ? value.trim() : undefined;
+const stringValue = (value: EdgerunnerJson | undefined): string | undefined => {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const normalized = normalizeTranscriptText(value);
+  return normalized || undefined;
+};
 
 const firstString = (...values: Array<EdgerunnerJson | undefined>): string | undefined => {
   for (const value of values) {
@@ -1152,6 +1176,14 @@ function EventsTranscript({
   );
 }
 
+function TranscriptViewport({ children }: { children: ReactNode }) {
+  return (
+    <div className="relative min-h-0 flex-1 overflow-hidden bg-surface-primary">
+      <div className="scrollbar-gutter-stable h-full overflow-y-auto">{children}</div>
+    </div>
+  );
+}
+
 function LogsViewport({ lines }: { lines: string[] }) {
   const localize = useLocalize();
 
@@ -1433,8 +1465,8 @@ function SessionWorkspace({
   }
 
   return (
-    <main className="flex min-w-0 flex-1 bg-surface-primary">
-      <div className="flex min-w-0 flex-1 flex-col">
+    <main className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-surface-primary">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
         <ChatHeader
           session={session}
           sessions={sessions}
@@ -1449,7 +1481,7 @@ function SessionWorkspace({
           onNewSession={onNewSession}
           onRefresh={refetchAll}
         />
-        <div className="min-h-0 flex-1 overflow-auto bg-surface-primary">
+        <TranscriptViewport>
           {session ? (
             <EventsTranscript
               transcript={transcript}
@@ -1460,7 +1492,7 @@ function SessionWorkspace({
           ) : (
             <EmptyChat profiles={profiles} />
           )}
-        </div>
+        </TranscriptViewport>
         {session ? <MobileLogsPanel lines={logLines} /> : null}
         {sessionId ? (
           <MessageComposer sessionId={sessionId} />
@@ -1507,7 +1539,7 @@ export default function EdgerunnerView() {
   }, [navigate]);
 
   return (
-    <div className="flex h-dvh min-w-0 flex-col bg-surface-primary text-text-primary">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface-primary text-text-primary">
       <SessionWorkspace
         sessionId={selectedSessionId}
         sessions={sessions}
