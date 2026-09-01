@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Box,
   ChevronDown,
@@ -101,6 +101,7 @@ const ANSI_ESCAPE_PATTERN = new RegExp(`${ESCAPE_CHARACTER}\\[[0-?]*[ -/]*[@-~]`
 const LITERAL_ANSI_ESCAPE_PATTERN = /\\u001b|\\x1b|\\e/gi;
 const ORPHANED_ANSI_SGR_PATTERN = /\[(?:\d{1,3}(?:;\d{1,3})*)?m/g;
 const BACKSPACE_CHARACTER = String.fromCharCode(8);
+const TRANSCRIPT_FOLLOW_THRESHOLD_PX = 160;
 
 const emptyDraft: DraftState = {
   repo: '',
@@ -1209,9 +1210,40 @@ function EventsTranscript({
 }
 
 function TranscriptViewport({ children }: { children: ReactNode }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const shouldFollowRef = useRef(true);
+
+  useEffect(() => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl || !shouldFollowRef.current) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => {
+      scrollEl.scrollTop = scrollEl.scrollHeight;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [children]);
+
+  const updateFollowState = () => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) {
+      return;
+    }
+    shouldFollowRef.current =
+      scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight <=
+      TRANSCRIPT_FOLLOW_THRESHOLD_PX;
+  };
+
   return (
     <div className="relative min-h-0 flex-1 overflow-hidden bg-surface-primary">
-      <div className="scrollbar-gutter-stable h-full overflow-y-auto">{children}</div>
+      <div
+        ref={scrollRef}
+        className="scrollbar-gutter-stable h-full overflow-y-auto"
+        onScroll={updateFollowState}
+      >
+        {children}
+      </div>
     </div>
   );
 }
