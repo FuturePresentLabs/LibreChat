@@ -1,4 +1,5 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { SSE } from 'sse.js';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { QueryKeys, dataService, edgerunnerSessionEvents } from 'librechat-data-provider';
 import type { UseQueryOptions, QueryObserverResult, QueryClient } from '@tanstack/react-query';
@@ -15,9 +16,12 @@ import type {
   EdgerunnerRepositoriesResponse,
   EdgerunnerArtifactsResponse,
 } from 'librechat-data-provider';
+import { useAuthContext } from '~/hooks/AuthContext';
 
 const ACTIVE_SESSION_REFRESH_MS = 2_000;
 const IDLE_SESSION_REFRESH_MS = 10_000;
+const INITIAL_RECONNECT_MS = 500;
+const MAX_RECONNECT_MS = 5_000;
 
 const terminalStatuses = new Set(['completed', 'failed', 'interrupted', 'cancelled', 'canceled']);
 const streamEventNames = [
@@ -280,43 +284,101 @@ const appendStreamEvent = (queryClient: QueryClient, sessionId: string, event: E
     (current) => mergeEvents(current, event),
   );
   queryClient.invalidateQueries([QueryKeys.edgerunnerMessages, sessionId]);
+  queryClient.invalidateQueries([QueryKeys.edgerunnerSession, sessionId]);
+  queryClient.invalidateQueries([QueryKeys.edgerunnerSessions]);
+};
+
+const isTerminalStreamEvent = (event: EdgerunnerEvent): boolean => {
+  const kind = String(event.kind ?? '').toLowerCase();
+  return kind === 'run_completed' || kind === 'run_failed' || terminalStatuses.has(kind);
 };
 
 export const useEdgerunnerEventStream = (sessionId: string | null | undefined, enabled = true) => {
+  const { token, isAuthenticated } = useAuthContext();
   const queryClient = useQueryClient();
   const stableSessionId = sessionId ?? '';
-
-  const url = useMemo(() => {
-    if (!stableSessionId || !enabled) {
-      return null;
-    }
-    return edgerunnerSessionEvents(stableSessionId, undefined, true);
-  }, [enabled, stableSessionId]);
+  const latestEventIdRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
-    if (!url || !stableSessionId) {
+    latestEventIdRef.current = undefined;
+  }, [stableSessionId]);
+
+  const url = useMemo(() => {
+    if (!stableSessionId || !enabled || !isAuthenticated || !token) {
+      return null;
+    }
+    return edgerunnerSessionEvents(stableSessionId, latestEventIdRef.current, true);
+  }, [enabled, isAuthenticated, stableSessionId, token]);
+
+  useEffect(() => {
+    if (!url || !stableSessionId || !token) {
       return;
     }
 
-    const source = new EventSource(url);
+    let stream: SSE | undefined;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryAttempt = 0;
+    let disposed = false;
+    let terminal = false;
+
+    const closeCurrent = () => {
+      const current = stream;
+      stream = undefined;
+      current?.close();
+    };
+
     const handleEvent = (message: MessageEvent<string>) => {
+      if (disposed) {
+        return;
+      }
       try {
-        appendStreamEvent(
-          queryClient,
-          stableSessionId,
-          JSON.parse(message.data) as EdgerunnerEvent,
-        );
+        const event = JSON.parse(message.data) as EdgerunnerEvent;
+        latestEventIdRef.current = getEdgerunnerEventId(event) ?? latestEventIdRef.current;
+        retryAttempt = 0;
+        appendStreamEvent(queryClient, stableSessionId, event);
+        if (isTerminalStreamEvent(event)) {
+          terminal = true;
+          closeCurrent();
+        }
       } catch {
         // Ignore malformed stream frames; polling remains active as the authoritative fallback.
       }
     };
 
-    source.onmessage = handleEvent;
-    streamEventNames.forEach((eventName) => source.addEventListener(eventName, handleEvent));
-    return () => {
-      source.onmessage = null;
-      streamEventNames.forEach((eventName) => source.removeEventListener(eventName, handleEvent));
-      source.close();
+    const connect = () => {
+      retryTimer = undefined;
+      if (disposed || terminal) {
+        return;
+      }
+
+      const next = new SSE(
+        edgerunnerSessionEvents(stableSessionId, latestEventIdRef.current, true),
+        {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      stream = next;
+      next.addEventListener('message', handleEvent);
+      streamEventNames.forEach((eventName) => next.addEventListener(eventName, handleEvent));
+      next.addEventListener('error', () => {
+        if (stream !== next || disposed || terminal || retryTimer != null) {
+          return;
+        }
+        closeCurrent();
+        const delay = Math.min(INITIAL_RECONNECT_MS * 2 ** retryAttempt, MAX_RECONNECT_MS);
+        retryAttempt += 1;
+        retryTimer = setTimeout(connect, delay);
+      });
     };
-  }, [queryClient, stableSessionId, url]);
+
+    connect();
+    return () => {
+      disposed = true;
+      if (retryTimer != null) {
+        clearTimeout(retryTimer);
+      }
+      closeCurrent();
+    };
+  }, [queryClient, stableSessionId, token, url]);
 };

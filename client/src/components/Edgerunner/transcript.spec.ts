@@ -1,5 +1,9 @@
 import type { EdgerunnerEvent, EdgerunnerSession } from 'librechat-data-provider';
-import { transcriptFromEvents, transcriptFromMessages } from './transcript';
+import {
+  transcriptFromEvents,
+  transcriptFromMessages,
+  transcriptFromMessagesAndEvents,
+} from './transcript';
 
 const session = (overrides: Partial<EdgerunnerSession> = {}): EdgerunnerSession => ({
   id: 'session-1',
@@ -120,6 +124,41 @@ describe('Edgerunner transcript mapping', () => {
     ).toEqual([
       ['activity', 'Read', 'running', undefined],
       ['activity', 'Stderr', 'error', 'permission denied'],
+    ]);
+  });
+
+  it('keeps streamed assistant output visible when persisted messages only contain the prompt', () => {
+    const transcript = transcriptFromMessagesAndEvents(
+      [
+        {
+          id: 21,
+          session_id: 'session-1',
+          role: 'user',
+          content: 'Inspect package metadata',
+          created_at: 1788237893076,
+        },
+      ],
+      [
+        {
+          id: 22,
+          kind: 'assistant_delta',
+          data: { role: 'assistant', content: 'I am checking the repository now.' },
+          created_at: 1788237894076,
+        },
+        {
+          id: 23,
+          kind: 'tool_call_started',
+          data: { tool_name: 'Read', path: 'package.json' },
+          created_at: 1788237895076,
+        },
+      ],
+      session({ prompt: 'Inspect package metadata' }),
+    );
+
+    expect(transcript.map((item) => [item.role, item.kind, item.title, item.body])).toEqual([
+      ['user', 'message', 'User', 'Inspect package metadata'],
+      ['agent', 'message', 'Assistant', 'I am checking the repository now.'],
+      ['tool', 'activity', 'Read', undefined],
     ]);
   });
 });

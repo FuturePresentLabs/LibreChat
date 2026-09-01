@@ -19,7 +19,9 @@ import {
   Button,
   ControlCombobox,
   Select,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectValue,
   SelectContent,
   SelectTrigger,
@@ -36,6 +38,7 @@ import {
 } from '@librechat/client';
 import { useNavigate, useParams } from 'react-router-dom';
 import type {
+  TConversation,
   TMessage,
   EdgerunnerEvent,
   EdgerunnerJson,
@@ -65,7 +68,7 @@ import {
   useEdgerunnerRepositoriesQuery,
   useCreateEdgerunnerSessionMutation,
 } from '~/data-provider';
-import { useDebounce, useDocumentTitle, useLocalize } from '~/hooks';
+import { TranslationKeys, useDebounce, useDocumentTitle, useLocalize } from '~/hooks';
 import MessageContent from '~/components/Chat/Messages/Content/MessageContent';
 import MessageIcon from '~/components/Chat/Messages/MessageIcon';
 import MessageRow, { getMessageRowWidthClass } from '~/components/Chat/Messages/ui/MessageRow';
@@ -74,9 +77,9 @@ import OpenSidebar from '~/components/Chat/Menus/OpenSidebar';
 import SubRow from '~/components/Chat/Messages/SubRow';
 import { MessageContext } from '~/Providers';
 import { mainTextareaId, type OptionWithIcon, type TAskFunction } from '~/common';
-import { cn, removeFocusRings } from '~/utils';
+import { cn, groupConversationsByDate, removeFocusRings } from '~/utils';
 import type { FormEvent, ReactNode } from 'react';
-import { transcriptFromEvents, transcriptFromMessages, type TranscriptItem } from './transcript';
+import { transcriptFromMessagesAndEvents, type TranscriptItem } from './transcript';
 
 type DraftState = {
   repo: string;
@@ -172,6 +175,11 @@ const timestampMs = (value: number | string | undefined): number => {
   return Number.isFinite(timestamp) ? timestamp : 0;
 };
 
+const timestampIso = (value: number | string | undefined): string => {
+  const timestamp = timestampMs(value);
+  return timestamp > 0 ? new Date(timestamp).toISOString() : new Date(0).toISOString();
+};
+
 const jsonPreview = (value: EdgerunnerJson | undefined): string => {
   if (value == null) {
     return '';
@@ -207,6 +215,14 @@ const repoLaunchValue = (repo: EdgerunnerRepository): string =>
 
 const shortSessionTitle = (session: EdgerunnerSession): string =>
   session.title || repoDisplayName(session.repo_url) || session.id;
+
+const sessionToConversation = (session: EdgerunnerSession): TConversation =>
+  ({
+    conversationId: session.id,
+    title: shortSessionTitle(session),
+    createdAt: timestampIso(session.created_at),
+    updatedAt: timestampIso(session.updated_at ?? session.created_at),
+  }) as TConversation;
 
 const statusTone = (status?: string) => {
   const normalized = String(status ?? '').toLowerCase();
@@ -277,6 +293,14 @@ function SessionSelect({
       ),
     [sessions],
   );
+  const sessionById = useMemo(
+    () => new Map(sortedSessions.map((session) => [session.id, session])),
+    [sortedSessions],
+  );
+  const groupedSessions = useMemo(
+    () => groupConversationsByDate(sortedSessions.map(sessionToConversation)),
+    [sortedSessions],
+  );
 
   if (loading) {
     return <Skeleton className="h-9 w-32 sm:w-44" aria-hidden="true" />;
@@ -305,17 +329,30 @@ function SessionSelect({
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={NEW_SESSION_VALUE}>{localize('com_edgerunner_new_session')}</SelectItem>
-        {sortedSessions.map((session) => (
-          <SelectItem key={session.id} value={session.id}>
-            <span className="flex min-w-0 flex-col py-1">
-              <span className="truncate text-sm">{shortSessionTitle(session)}</span>
-              <span className="truncate text-xs text-text-tertiary">
-                {formatTimestamp(session.updated_at ?? session.created_at) ||
-                  repoDisplayName(session.repo_url) ||
-                  session.id}
-              </span>
-            </span>
-          </SelectItem>
+        {groupedSessions.map(([groupName, conversations]) => (
+          <SelectGroup key={groupName}>
+            <SelectLabel className="px-2 pb-1 pt-2 text-xs font-semibold text-text-secondary">
+              {localize(groupName as TranslationKeys) || groupName}
+            </SelectLabel>
+            {conversations.map((conversation) => {
+              const session = sessionById.get(conversation.conversationId);
+              if (!session) {
+                return null;
+              }
+              return (
+                <SelectItem key={session.id} value={session.id}>
+                  <span className="flex min-w-0 flex-col py-1">
+                    <span className="truncate text-sm">{shortSessionTitle(session)}</span>
+                    <span className="truncate text-xs text-text-tertiary">
+                      {formatTimestamp(session.updated_at ?? session.created_at) ||
+                        repoDisplayName(session.repo_url) ||
+                        session.id}
+                    </span>
+                  </span>
+                </SelectItem>
+              );
+            })}
+          </SelectGroup>
         ))}
       </SelectContent>
     </Select>
@@ -1406,9 +1443,7 @@ function SessionWorkspace({
     if (!session) {
       return [];
     }
-    return messages.length > 0
-      ? transcriptFromMessages(messages, session)
-      : transcriptFromEvents(events, session);
+    return transcriptFromMessagesAndEvents(messages, events, session);
   }, [events, messages, session]);
   const logLines = logsQuery.data?.lines ?? [];
   const artifacts = Array.isArray(artifactsQuery.data)

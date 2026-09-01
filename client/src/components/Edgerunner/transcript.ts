@@ -216,7 +216,7 @@ const eventTitle = (event: EdgerunnerEvent): string => {
   if (toolName && eventRole(event) === 'tool') {
     return toolName;
   }
-  if (kind === 'agent_progress' && firstString(payload?.content)) {
+  if ((kind === 'agent_progress' || kind.endsWith('_delta')) && firstString(payload?.content)) {
     return 'Assistant';
   }
   if (kind === 'message') {
@@ -512,3 +512,36 @@ export const transcriptFromEvents = (events: EdgerunnerEvent[], session: Edgerun
       ];
     }),
   );
+
+const transcriptFingerprint = (item: TranscriptItem): string =>
+  [item.role, item.kind ?? '', item.title, item.body ?? ''].join('\u0000');
+
+export const transcriptFromMessagesAndEvents = (
+  messages: EdgerunnerTranscriptMessage[],
+  events: EdgerunnerEvent[],
+  session: EdgerunnerSession,
+): TranscriptItem[] => {
+  const messageTranscript = transcriptFromMessages(messages, session);
+  if (events.length === 0) {
+    return messageTranscript;
+  }
+  if (messages.length === 0) {
+    return transcriptFromEvents(events, session);
+  }
+
+  const promptKey = `${session.id}-prompt`;
+  const seen = new Set(messageTranscript.map(transcriptFingerprint));
+  const liveTranscript = transcriptFromEvents(events, session).filter((item) => {
+    if (item.key === promptKey) {
+      return false;
+    }
+    const fingerprint = transcriptFingerprint(item);
+    if (seen.has(fingerprint)) {
+      return false;
+    }
+    seen.add(fingerprint);
+    return true;
+  });
+
+  return messageTranscript.concat(liveTranscript);
+};
