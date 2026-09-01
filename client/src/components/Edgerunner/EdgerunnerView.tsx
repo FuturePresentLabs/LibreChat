@@ -46,6 +46,7 @@ import type {
   EdgerunnerRepository,
   EdgerunnerCreateSessionRequest,
 } from 'librechat-data-provider';
+import { LocalStorageKeys } from 'librechat-data-provider';
 import {
   getEdgerunnerEvents,
   getEdgerunnerMessages,
@@ -84,6 +85,12 @@ type DraftState = {
   prompt: string;
 };
 
+type StoredLaunchTarget = {
+  repo?: string;
+  repoFullName?: string;
+  ref?: string;
+};
+
 const DEFAULT_REPO_VALUE = '__manual__';
 const DEFAULT_PROFILE_VALUE = '__default__';
 const NEW_SESSION_VALUE = '__new_session__';
@@ -94,6 +101,48 @@ const emptyDraft: DraftState = {
   ref: '',
   profileId: '',
   prompt: '',
+};
+
+const readStoredLaunchTarget = (): StoredLaunchTarget => {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+
+  try {
+    const value = window.localStorage.getItem(LocalStorageKeys.LAST_EDGERUNNER_TARGET);
+    if (!value) {
+      return {};
+    }
+    const parsed = JSON.parse(value) as StoredLaunchTarget;
+    return {
+      repo: typeof parsed.repo === 'string' ? parsed.repo : '',
+      repoFullName: typeof parsed.repoFullName === 'string' ? parsed.repoFullName : '',
+      ref: typeof parsed.ref === 'string' ? parsed.ref : '',
+    };
+  } catch (_error) {
+    return {};
+  }
+};
+
+const writeStoredLaunchTarget = (target: StoredLaunchTarget) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    const payload = {
+      ...(target.repo && { repo: target.repo }),
+      ...(target.repoFullName && { repoFullName: target.repoFullName }),
+      ...(target.ref && { ref: target.ref }),
+    };
+    if (Object.keys(payload).length === 0) {
+      window.localStorage.removeItem(LocalStorageKeys.LAST_EDGERUNNER_TARGET);
+      return;
+    }
+    window.localStorage.setItem(LocalStorageKeys.LAST_EDGERUNNER_TARGET, JSON.stringify(payload));
+  } catch (_error) {
+    // localStorage can be unavailable in private or embedded contexts.
+  }
 };
 
 const formatTimestamp = (value: number | string | undefined): string => {
@@ -112,6 +161,15 @@ const formatTimestamp = (value: number | string | undefined): string => {
     hour: 'numeric',
     minute: '2-digit',
   }).format(date);
+};
+
+const timestampMs = (value: number | string | undefined): number => {
+  if (value == null || value === '') {
+    return 0;
+  }
+  const numeric = typeof value === 'number' ? value : Number(value);
+  const timestamp = Number.isFinite(numeric) ? numeric : Date.parse(String(value));
+  return Number.isFinite(timestamp) ? timestamp : 0;
 };
 
 const jsonPreview = (value: EdgerunnerJson | undefined): string => {
@@ -210,12 +268,21 @@ function SessionSelect({
   onNew: () => void;
 }) {
   const localize = useLocalize();
+  const sortedSessions = useMemo(
+    () =>
+      [...sessions].sort(
+        (first, second) =>
+          timestampMs(second.updated_at ?? second.created_at) -
+          timestampMs(first.updated_at ?? first.created_at),
+      ),
+    [sessions],
+  );
 
   if (loading) {
     return <Skeleton className="h-9 w-32 sm:w-44" aria-hidden="true" />;
   }
 
-  if (unavailable || sessions.length === 0) {
+  if (unavailable || sortedSessions.length === 0) {
     return null;
   }
 
@@ -238,7 +305,7 @@ function SessionSelect({
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={NEW_SESSION_VALUE}>{localize('com_edgerunner_new_session')}</SelectItem>
-        {sessions.map((session) => (
+        {sortedSessions.map((session) => (
           <SelectItem key={session.id} value={session.id}>
             <span className="flex min-w-0 flex-col py-1">
               <span className="truncate text-sm">{shortSessionTitle(session)}</span>
@@ -552,12 +619,15 @@ function NewSessionComposer({
   const localize = useLocalize();
   const { showToast } = useToastContext();
   const createSession = useCreateEdgerunnerSessionMutation();
-  const [repoSearch, setRepoSearch] = useState('');
+  const storedLaunchTarget = useMemo(() => readStoredLaunchTarget(), []);
+  const [repoSearch, setRepoSearch] = useState(storedLaunchTarget.repoFullName || '');
   const [branchSearch, setBranchSearch] = useState('');
   const debouncedRepoSearch = useDebounce(repoSearch.trim(), 250);
   const debouncedBranchSearch = useDebounce(branchSearch.trim(), 250);
   const [draft, setDraft] = useState<DraftState>(() => ({
     ...emptyDraft,
+    repo: storedLaunchTarget.repo || '',
+    ref: storedLaunchTarget.ref || '',
     profileId: profiles[0]?.id || '',
   }));
   const searchedRepositoriesQuery = useEdgerunnerRepositoriesQuery(debouncedRepoSearch, {
@@ -586,6 +656,15 @@ function NewSessionComposer({
       draft.repo,
     ),
   );
+
+  useEffect(() => {
+    writeStoredLaunchTarget({
+      repo: draft.repo.trim(),
+      repoFullName: selectedRepo?.full_name,
+      ref: draft.ref.trim(),
+    });
+  }, [draft.repo, draft.ref, selectedRepo?.full_name]);
+
   const selectedRepoSegments = repoSegments(selectedRepo);
   const branchesQuery = useEdgerunnerBranchesQuery(
     selectedRepoSegments?.owner,

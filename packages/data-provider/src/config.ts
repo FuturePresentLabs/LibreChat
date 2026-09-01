@@ -3488,6 +3488,8 @@ export enum LocalStorageKeys {
   LAST_AGENT_PROVIDER = 'lastAgentProvider',
   /** Key for the last selected agent model */
   LAST_AGENT_MODEL = 'lastAgentModel',
+  /** Key for the last selected Edgerunner launch target */
+  LAST_EDGERUNNER_TARGET = 'lastEdgerunnerTarget',
   /** Pin state for MCP tools per conversation ID */
   PIN_MCP_ = 'PIN_MCP_',
   /** Pin state for Web Search per conversation ID */
