@@ -8,10 +8,8 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 env:
-  IMAGE: ghcr.io/futurepresentlabs/librechat
   FPL_IMAGE: librechat
 
 jobs:
@@ -22,33 +20,6 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: Dockerfile
-          platforms: linux/amd64
-          push: true
-          build-args: |
-            BUILD_COMMIT=${{ github.sha }}
-            BUILD_BRANCH=${{ github.ref_name }}
-            BUILD_DATE=${{ github.event.head_commit.timestamp }}
-          tags: |
-            ${{ env.IMAGE }}:fpl-prod
-            ${{ env.IMAGE }}:${{ github.sha }}
-          cache-from: type=gha,scope=fpl-librechat
-          cache-to: type=gha,mode=max,scope=fpl-librechat
-
       - name: Install registry client certs
         run: .github/scripts/install-fpl-registry-certs.sh
         env:
@@ -57,7 +28,7 @@ jobs:
           FPL_REGISTRY_CLIENT_CERT: ${{ secrets.FPL_REGISTRY_CLIENT_CERT }}
           FPL_REGISTRY_CLIENT_KEY: ${{ secrets.FPL_REGISTRY_CLIENT_KEY }}
 
-      - name: Build FPL registry tags
+      - name: Build FPL registry image
         run: |
           docker build \
             --build-arg "BUILD_COMMIT=${GITHUB_SHA}" \
@@ -74,6 +45,12 @@ jobs:
         run: |
           docker push "${FPL_REGISTRY_DIRECT_HOST}/${FPL_IMAGE}:fpl-prod"
           docker push "${FPL_REGISTRY_DIRECT_HOST}/${FPL_IMAGE}:sha-${GITHUB_SHA}"
+        env:
+          FPL_REGISTRY_DIRECT_HOST: ${{ vars.FPL_REGISTRY_DIRECT_HOST || 'registry-direct.fpl.dev' }}
+
+      - name: Verify FPL registry image
+        run: |
           docker manifest inspect "${FPL_REGISTRY_DIRECT_HOST}/${FPL_IMAGE}:fpl-prod" >/dev/null
+          docker manifest inspect "${FPL_REGISTRY_DIRECT_HOST}/${FPL_IMAGE}:sha-${GITHUB_SHA}" >/dev/null
         env:
           FPL_REGISTRY_DIRECT_HOST: ${{ vars.FPL_REGISTRY_DIRECT_HOST || 'registry-direct.fpl.dev' }}
