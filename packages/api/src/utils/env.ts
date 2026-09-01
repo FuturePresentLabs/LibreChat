@@ -59,6 +59,10 @@ type SignedActorVars = Record<
   'LIBRECHAT_SIGNED_ACTOR' | 'LIBRECHAT_SIGNED_ACTOR_SIGNATURE',
   string
 >;
+type SignedUsageContextVars = Record<
+  'LIBRECHAT_SIGNED_USAGE_CONTEXT' | 'LIBRECHAT_SIGNED_USAGE_CONTEXT_SIGNATURE',
+  string
+>;
 
 /**
  * Encodes a string value to be safe for HTTP headers.
@@ -177,6 +181,9 @@ const AUTH_TOKEN_PLACEHOLDER = '{{LIBRECHAT_AUTH_TOKEN}}';
 const FPL_SSO_TOKEN_PLACEHOLDER = '{{LIBRECHAT_FPL_SSO_TOKEN}}';
 const SIGNED_ACTOR_PLACEHOLDER = '{{LIBRECHAT_SIGNED_ACTOR}}';
 const SIGNED_ACTOR_SIGNATURE_PLACEHOLDER = '{{LIBRECHAT_SIGNED_ACTOR_SIGNATURE}}';
+const SIGNED_USAGE_CONTEXT_PLACEHOLDER = '{{LIBRECHAT_SIGNED_USAGE_CONTEXT}}';
+const SIGNED_USAGE_CONTEXT_SIGNATURE_PLACEHOLDER =
+  '{{LIBRECHAT_SIGNED_USAGE_CONTEXT_SIGNATURE}}';
 
 /**
  * Matches every placeholder this module knows how to resolve: the enumerated
@@ -194,6 +201,8 @@ const RESOLVABLE_PLACEHOLDER_PATTERN = new RegExp(
     'LIBRECHAT_FPL_SSO_TOKEN',
     'LIBRECHAT_SIGNED_ACTOR',
     'LIBRECHAT_SIGNED_ACTOR_SIGNATURE',
+    'LIBRECHAT_SIGNED_USAGE_CONTEXT',
+    'LIBRECHAT_SIGNED_USAGE_CONTEXT_SIGNATURE',
   ]
     .map((names) => `\\{\\{(?:${names})\\}\\}`)
     .join('|'),
@@ -363,6 +372,35 @@ function createSignedActorVars(user?: Partial<IUser>): SignedActorVars | undefin
   };
 }
 
+function createSignedUsageContextVars(body?: RequestBody): SignedUsageContextVars | undefined {
+  const secret = process.env.LIBRECHAT_ACTOR_HMAC_SECRET ?? process.env.FPL_ACTOR_HMAC_SECRET;
+  if (typeof secret !== 'string' || secret.length === 0) {
+    return undefined;
+  }
+
+  const project = normalizeUsageKey(process.env.LIBRECHAT_USAGE_PROJECT);
+  const workflow = normalizeUsageKey(body?.conversationId, 'conversation');
+  const trace_id = normalizeUsageKey(body?.messageId);
+  const parent_request_id = normalizeUsageKey(body?.parentMessageId);
+  const now = Math.floor(Date.now() / 1000);
+  const payload = base64Url(
+    JSON.stringify({
+      client: 'librechat',
+      ...(project ? { project } : {}),
+      ...(workflow ? { workflow } : {}),
+      ...(trace_id ? { trace_id } : {}),
+      ...(parent_request_id ? { parent_request_id } : {}),
+      iat: now,
+      exp: now + 300,
+    }),
+  );
+  const signature = createHmac('sha256', secret).update(payload).digest('base64url');
+  return {
+    LIBRECHAT_SIGNED_USAGE_CONTEXT: payload,
+    LIBRECHAT_SIGNED_USAGE_CONTEXT_SIGNATURE: `v1=${signature}`,
+  };
+}
+
 function processSignedActorPlaceholders(value: string, signedActorVars?: SignedActorVars): string {
   const needsActor =
     value.includes(SIGNED_ACTOR_PLACEHOLDER) || value.includes(SIGNED_ACTOR_SIGNATURE_PLACEHOLDER);
@@ -385,6 +423,51 @@ function processSignedActorPlaceholders(value: string, signedActorVars?: SignedA
     );
 }
 
+function processSignedUsageContextPlaceholders(
+  value: string,
+  signedUsageContextVars?: SignedUsageContextVars,
+): string {
+  const needsUsageContext =
+    value.includes(SIGNED_USAGE_CONTEXT_PLACEHOLDER) ||
+    value.includes(SIGNED_USAGE_CONTEXT_SIGNATURE_PLACEHOLDER);
+  if (!needsUsageContext) {
+    return value;
+  }
+  if (!signedUsageContextVars) {
+    logger.warn(
+      `Signed usage context placeholder is configured but no context could be signed for the current request`,
+    );
+    throw new Error(
+      `Signed usage context placeholder is configured but no context could be signed for the current request`,
+    );
+  }
+  return value
+    .replace(
+      new RegExp(SIGNED_USAGE_CONTEXT_PLACEHOLDER, 'g'),
+      signedUsageContextVars.LIBRECHAT_SIGNED_USAGE_CONTEXT,
+    )
+    .replace(
+      new RegExp(SIGNED_USAGE_CONTEXT_SIGNATURE_PLACEHOLDER, 'g'),
+      signedUsageContextVars.LIBRECHAT_SIGNED_USAGE_CONTEXT_SIGNATURE,
+    );
+}
+
+function normalizeUsageKey(value: unknown, prefix?: string): string | undefined {
+  if (value == null) {
+    return undefined;
+  }
+  const cleaned = String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._:/-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 160);
+  if (!cleaned) {
+    return undefined;
+  }
+  return prefix ? `${prefix}.${cleaned}` : cleaned;
+}
+
 /**
  * Processes a single string value by replacing various types of placeholders
  *
@@ -403,6 +486,7 @@ function processSingleValue({
   isHeader = false,
   dbSourced = false,
   signedActorVars,
+  signedUsageContextVars,
 }: {
   originalValue: string;
   customUserVars?: Record<string, string>;
@@ -410,6 +494,7 @@ function processSingleValue({
   body?: RequestBody;
   isHeader?: boolean;
   signedActorVars?: SignedActorVars;
+  signedUsageContextVars?: SignedUsageContextVars;
   /** When true, only resolve customUserVars — skip env vars, user/OpenID/body placeholders */
   dbSourced?: boolean;
 }): string {
@@ -445,6 +530,7 @@ function processSingleValue({
   }
 
   value = processSignedActorPlaceholders(value, signedActorVars);
+  value = processSignedUsageContextPlaceholders(value, signedUsageContextVars);
   value = processUserPlaceholders(value, user, isHeader);
   value = processRequestAuthPlaceholder(
     value,
@@ -758,6 +844,7 @@ export function resolveHeaders(options?: {
 
   const resolvedHeaders: Record<string, string> = { ...inputHeaders };
   const signedActorVars = createSignedActorVars(user as Partial<IUser> | undefined);
+  const signedUsageContextVars = createSignedUsageContextVars(body);
 
   if (inputHeaders && typeof inputHeaders === 'object' && !Array.isArray(inputHeaders)) {
     Object.keys(inputHeaders).forEach((key) => {
@@ -768,6 +855,7 @@ export function resolveHeaders(options?: {
         body,
         isHeader: true, // Important: Enable header encoding
         signedActorVars,
+        signedUsageContextVars,
       });
       if (!stripUnresolved) {
         resolvedHeaders[key] = processed;

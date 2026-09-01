@@ -597,6 +597,10 @@ endpoints:
   # openAI:
   #   headers:
   #     cf-aig-metadata: '{"user_email":"{{LIBRECHAT_USER_EMAIL}}","app":"librechat"}'
+  #     X-FPL-Actor: '{{LIBRECHAT_SIGNED_ACTOR}}'
+  #     X-FPL-Actor-Signature: '{{LIBRECHAT_SIGNED_ACTOR_SIGNATURE}}'
+  #     X-FPL-Usage-Context: '{{LIBRECHAT_SIGNED_USAGE_CONTEXT}}'
+  #     X-FPL-Usage-Context-Signature: '{{LIBRECHAT_SIGNED_USAGE_CONTEXT_SIGNATURE}}'
   # google:
   #   headers:
   #     cf-aig-metadata: '{"user_email":"{{LIBRECHAT_USER_EMAIL}}","app":"librechat"}'

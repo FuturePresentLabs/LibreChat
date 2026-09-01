@@ -2340,12 +2340,18 @@ describe('resolveHeaders stripUnresolved', () => {
 
 describe('resolveHeaders signed actor placeholders', () => {
   const originalActorSecret = process.env.LIBRECHAT_ACTOR_HMAC_SECRET;
+  const originalUsageProject = process.env.LIBRECHAT_USAGE_PROJECT;
 
   afterEach(() => {
     if (originalActorSecret === undefined) {
       delete process.env.LIBRECHAT_ACTOR_HMAC_SECRET;
     } else {
       process.env.LIBRECHAT_ACTOR_HMAC_SECRET = originalActorSecret;
+    }
+    if (originalUsageProject === undefined) {
+      delete process.env.LIBRECHAT_USAGE_PROJECT;
+    } else {
+      process.env.LIBRECHAT_USAGE_PROJECT = originalUsageProject;
     }
     jest.useRealTimers();
   });
@@ -2387,6 +2393,53 @@ describe('resolveHeaders signed actor placeholders', () => {
         user: createSafeUser(createTestUser()),
       }),
     ).toThrow('Signed actor placeholder is configured but no actor could be signed');
+  });
+
+  it('signs one per-request usage-context payload for paired headers', () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-27T12:00:00Z'));
+    process.env.LIBRECHAT_ACTOR_HMAC_SECRET = 'test-secret';
+    process.env.LIBRECHAT_USAGE_PROJECT = 'FPL Internal';
+
+    const result = resolveHeaders({
+      headers: {
+        'X-FPL-Usage-Context': '{{LIBRECHAT_SIGNED_USAGE_CONTEXT}}',
+        'X-FPL-Usage-Context-Signature': '{{LIBRECHAT_SIGNED_USAGE_CONTEXT_SIGNATURE}}',
+      },
+      body: {
+        conversationId: 'conv_123',
+        messageId: 'msg_456',
+        parentMessageId: 'parent_789',
+      },
+    });
+
+    const expectedSignature = createHmac('sha256', 'test-secret')
+      .update(result['X-FPL-Usage-Context'])
+      .digest('base64url');
+    expect(result['X-FPL-Usage-Context-Signature']).toBe(`v1=${expectedSignature}`);
+
+    const payload = JSON.parse(
+      Buffer.from(result['X-FPL-Usage-Context'], 'base64url').toString('utf8'),
+    );
+    expect(payload).toMatchObject({
+      client: 'librechat',
+      project: 'fpl-internal',
+      workflow: 'conversation.conv_123',
+      trace_id: 'msg_456',
+      parent_request_id: 'parent_789',
+      iat: 1787832000,
+      exp: 1787832300,
+    });
+  });
+
+  it('throws when signed usage-context headers are configured without a signing secret', () => {
+    delete process.env.LIBRECHAT_ACTOR_HMAC_SECRET;
+
+    expect(() =>
+      resolveHeaders({
+        headers: { 'X-FPL-Usage-Context': '{{LIBRECHAT_SIGNED_USAGE_CONTEXT}}' },
+        body: { conversationId: 'conv_123' },
+      }),
+    ).toThrow('Signed usage context placeholder is configured but no context could be signed');
   });
 });
 
