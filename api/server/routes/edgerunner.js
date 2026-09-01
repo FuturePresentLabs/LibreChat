@@ -1,5 +1,6 @@
 const express = require('express');
 const { generateCheckAccess } = require('@librechat/api');
+const { logger } = require('@librechat/data-schemas');
 const { PermissionTypes, Permissions } = require('librechat-data-provider');
 const { getRoleByName } = require('~/models');
 const { requireJwtAuth } = require('~/server/middleware');
@@ -140,6 +141,34 @@ function createSessionPayload(body = {}) {
   }
 
   return payload;
+}
+
+function shouldStartAsync(body = {}, payload = {}) {
+  return body.start_async === true && safeString(payload.prompt);
+}
+
+async function startSessionAsync(sessionId, payload, user) {
+  const prompt = safeString(payload.prompt);
+  if (!sessionId || !prompt) {
+    return;
+  }
+
+  try {
+    await client.sendMessage(
+      sessionId,
+      {
+        content: prompt,
+        start_run: true,
+        ...(payload.run && { run: payload.run }),
+      },
+      user,
+    );
+  } catch (error) {
+    logger.error('[edgerunner] async session start failed', {
+      sessionId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 function normalizeGitHubRepo(repo) {
@@ -353,12 +382,22 @@ router.get('/sessions', async (_req, res) => {
 
 router.post('/sessions', async (req, res) => {
   try {
-    const payload = createSessionPayload(req.body || {});
+    const requestedPayload = createSessionPayload(req.body || {});
+    const asyncStart = shouldStartAsync(req.body || {}, requestedPayload);
+    const payload = {
+      ...requestedPayload,
+      ...(asyncStart && { auto_start: false }),
+    };
     const session = await client.createSession(payload, req.user);
-    res.status(201).json({
+    const response = {
       ...session,
       ...(payload.prompt && !safeString(session?.prompt) && { prompt: payload.prompt }),
-    });
+      ...(asyncStart && { start_pending: true }),
+    };
+    res.status(asyncStart ? 202 : 201).json(response);
+    if (asyncStart) {
+      void startSessionAsync(session.id, payload, req.user);
+    }
   } catch (error) {
     sendError(res, error);
   }

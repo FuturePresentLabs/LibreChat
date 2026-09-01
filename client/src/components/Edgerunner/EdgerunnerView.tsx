@@ -859,7 +859,8 @@ function NewSessionComposer({
     const ref = draft.ref.trim() || selectedRepo?.default_branch || branches[0]?.name || '';
     const payload: EdgerunnerCreateSessionRequest = {
       prompt,
-      auto_start: true,
+      auto_start: false,
+      start_async: true,
       ...(draft.profileId ? { profile_id: draft.profileId } : {}),
       ...(draft.repo.trim() ? { repo_url: draft.repo.trim() } : {}),
       ...(ref ? { ref } : {}),

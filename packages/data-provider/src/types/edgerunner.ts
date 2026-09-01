@@ -39,6 +39,7 @@ export type EdgerunnerCreateSessionRequest = EdgerunnerJsonObject & {
   ref?: string;
   prompt?: string;
   auto_start?: boolean;
+  start_async?: boolean;
   labels?: Record<string, string>;
 };
 

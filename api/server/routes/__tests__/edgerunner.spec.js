@@ -189,6 +189,68 @@ describe('Edgerunner routes', () => {
     });
   });
 
+  it('accepts async session starts and preserves hidden profile run options', async () => {
+    process.env.EDGERUNNER_PROFILES = JSON.stringify([
+      {
+        id: 'careful',
+        label: 'Careful',
+        agent: 'codex',
+        model: 'fpl/agent',
+        run: {
+          validate: 'npm test',
+          timeout_seconds: 1200,
+        },
+      },
+    ]);
+    mockFetch
+      .mockResolvedValueOnce(await jsonResponse({ id: 'session-1', status: 'waiting' }, 202))
+      .mockResolvedValueOnce(await jsonResponse({ id: 'session-1', status: 'starting' }, 202));
+    const app = buildApp();
+
+    const response = await request(app).post('/api/edgerunner/sessions').send({
+      profile_id: 'careful',
+      repo_url: 'git@github.com:FuturePresentLabs/example.git',
+      prompt: 'Fix the startup flow',
+      start_async: true,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(response.status).toBe(202);
+    expect(response.body).toMatchObject({
+      id: 'session-1',
+      prompt: 'Fix the startup flow',
+      start_pending: true,
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls[0][0]).toBe('http://127.0.0.1:8087/v1/sessions');
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toMatchObject({
+      prompt: 'Fix the startup flow',
+      auto_start: false,
+      run: {
+        validate: 'npm test',
+        timeout_seconds: 1200,
+        model: 'fpl/agent',
+        agent: 'codex',
+        retention: 'snapshot',
+      },
+    });
+    expect(mockFetch.mock.calls[1][0]).toBe('http://127.0.0.1:8087/v1/sessions/session-1/messages');
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toMatchObject({
+      content: 'Fix the startup flow',
+      start_run: true,
+      run: {
+        validate: 'npm test',
+        timeout_seconds: 1200,
+        model: 'fpl/agent',
+        agent: 'codex',
+        retention: 'snapshot',
+      },
+      labels: {
+        'fpl.librechat.user_id': 'user-1',
+      },
+    });
+  });
+
   it('lists GitHub repositories through Edgerunner discovery', async () => {
     mockFetch.mockResolvedValueOnce(
       await jsonResponse({

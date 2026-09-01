@@ -4,6 +4,7 @@ import type { UseMutationResult } from '@tanstack/react-query';
 import type {
   EdgerunnerJson,
   EdgerunnerSession,
+  EdgerunnerMessagesResponse,
   EdgerunnerActionVariables,
   EdgerunnerCreateSessionRequest,
 } from 'librechat-data-provider';
@@ -19,8 +20,40 @@ export const useCreateEdgerunnerSessionMutation = (): UseMutationResult<
     [MutationKeys.edgerunnerCreateSession],
     (payload: EdgerunnerCreateSessionRequest) => dataService.createEdgerunnerSession(payload),
     {
-      onSuccess: (session) => {
+      onSuccess: (session, payload) => {
         queryClient.setQueryData([QueryKeys.edgerunnerSession, session.id], session);
+        const prompt = typeof payload.prompt === 'string' ? payload.prompt.trim() : '';
+        if (prompt) {
+          queryClient.setQueryData<EdgerunnerMessagesResponse | undefined>(
+            [QueryKeys.edgerunnerMessages, session.id],
+            (current) => {
+              const messages = current?.messages ?? current?.data ?? [];
+              if (
+                messages.some((message) => message.role === 'user' && message.content === prompt)
+              ) {
+                return current ?? { session_id: session.id, messages };
+              }
+              return {
+                ...(current ?? {}),
+                session_id: session.id,
+                messages: [
+                  {
+                    id: `${session.id}-initial-prompt`,
+                    session_id: session.id,
+                    role: 'user',
+                    content: prompt,
+                    created_at: session.created_at ?? new Date().toISOString(),
+                    data: {
+                      optimistic: true,
+                      source: 'librechat-create-session',
+                    },
+                  },
+                  ...messages,
+                ],
+              };
+            },
+          );
+        }
         queryClient.invalidateQueries([QueryKeys.edgerunnerSessions]);
       },
     },
