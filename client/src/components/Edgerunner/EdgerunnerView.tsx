@@ -98,6 +98,7 @@ const DEFAULT_PROFILE_VALUE = '__default__';
 const NEW_SESSION_VALUE = '__new_session__';
 const ESCAPE_CHARACTER = String.fromCharCode(27);
 const ANSI_ESCAPE_PATTERN = new RegExp(`${ESCAPE_CHARACTER}\\[[0-?]*[ -/]*[@-~]`, 'g');
+const LITERAL_ANSI_ESCAPE_PATTERN = /\\u001b|\\x1b|\\e/gi;
 const ORPHANED_ANSI_SGR_PATTERN = /\[(?:\d{1,3}(?:;\d{1,3})*)?m/g;
 const BACKSPACE_CHARACTER = String.fromCharCode(8);
 
@@ -188,6 +189,7 @@ const statusTone = (status?: string) => {
 
 const normalizeTranscriptText = (value: string): string => {
   let normalized = value
+    .replace(LITERAL_ANSI_ESCAPE_PATTERN, ESCAPE_CHARACTER)
     .replace(ANSI_ESCAPE_PATTERN, '')
     .replace(ORPHANED_ANSI_SGR_PATTERN, '')
     .replace(/\r\n?/g, '\n');
@@ -256,6 +258,35 @@ const roleTitle = (role: TranscriptItem['role']): string => {
     return 'System';
   }
   return 'Assistant';
+};
+
+const promptFromSessionTitle = (session: EdgerunnerSession): string | undefined => {
+  const title = stringValue(session.title);
+  if (!title || title.toLowerCase() === 'new agent session') {
+    return undefined;
+  }
+
+  const repo = repoDisplayName(session.repo_url);
+  const repoPrefix = repo ? `${repo}: ` : '';
+  if (repoPrefix && title.startsWith(repoPrefix)) {
+    return title.slice(repoPrefix.length).trim() || undefined;
+  }
+
+  return title.replace(/^[^:\s]+\/[^:]+:\s+/, '').trim() || undefined;
+};
+
+const sessionPrompt = (session: EdgerunnerSession): string | undefined =>
+  firstString(
+    session.prompt,
+    session.initial_prompt,
+    session.initialPrompt,
+    session.input,
+    session.request,
+  ) ?? promptFromSessionTitle(session);
+
+const messageBody = (message: EdgerunnerTranscriptMessage): string | undefined => {
+  const data = isJsonObject(message.data) ? message.data : undefined;
+  return firstString(message.content, data?.content, data?.text, data?.message, message.text);
 };
 
 const eventRole = (event: EdgerunnerEvent): TranscriptItem['role'] => {
@@ -332,9 +363,9 @@ const transcriptFromMessages = (
 ) => {
   const transcript: TranscriptItem[] = [];
   const firstUserMessage = messages.find((message) => transcriptRole(message.role) === 'user');
-  if (session.prompt) {
-    const prompt = String(session.prompt);
-    if (!firstUserMessage || firstUserMessage.content !== prompt) {
+  const prompt = sessionPrompt(session);
+  if (prompt) {
+    if (!firstUserMessage || messageBody(firstUserMessage) !== prompt) {
       transcript.push({
         key: `${session.id}-prompt`,
         role: 'user',
@@ -351,7 +382,7 @@ const transcriptFromMessages = (
       key: `${message.id ?? 'message'}-${index}`,
       role,
       title: roleTitle(role),
-      body: message.content,
+      body: messageBody(message),
       timestamp: messageTimestamp(message.created_at),
       raw: message.data,
     });

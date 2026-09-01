@@ -165,6 +165,10 @@ describe('Edgerunner routes', () => {
       });
 
     expect(response.status).toBe(201);
+    expect(response.body).toMatchObject({
+      id: 'session-1',
+      prompt: 'Implement thing',
+    });
     const [, options] = mockFetch.mock.calls[0];
     expect(JSON.parse(options.body)).toEqual({
       title: 'FuturePresentLabs/example: Implement thing',

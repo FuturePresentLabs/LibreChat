@@ -355,7 +355,10 @@ router.post('/sessions', async (req, res) => {
   try {
     const payload = createSessionPayload(req.body || {});
     const session = await client.createSession(payload, req.user);
-    res.status(201).json(session);
+    res.status(201).json({
+      ...session,
+      ...(payload.prompt && !safeString(session?.prompt) && { prompt: payload.prompt }),
+    });
   } catch (error) {
     sendError(res, error);
   }
