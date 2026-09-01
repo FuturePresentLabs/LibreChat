@@ -42,6 +42,54 @@ function safeString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function timestampMs(value) {
+  if (value == null || value === '') {
+    return 0;
+  }
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (Number.isFinite(numeric)) {
+    return numeric;
+  }
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function sessionTimestamp(session) {
+  return timestampMs(
+    session?.updated_at ?? session?.updatedAt ?? session?.created_at ?? session?.createdAt,
+  );
+}
+
+function sortSessionsNewestFirst(response) {
+  if (Array.isArray(response)) {
+    return [...response].sort(
+      (first, second) => sessionTimestamp(second) - sessionTimestamp(first),
+    );
+  }
+
+  if (!response || typeof response !== 'object') {
+    return response;
+  }
+
+  let sessionsKey = null;
+  if (Array.isArray(response.sessions)) {
+    sessionsKey = 'sessions';
+  } else if (Array.isArray(response.data)) {
+    sessionsKey = 'data';
+  }
+
+  if (!sessionsKey) {
+    return response;
+  }
+
+  return {
+    ...response,
+    [sessionsKey]: [...response[sessionsKey]].sort(
+      (first, second) => sessionTimestamp(second) - sessionTimestamp(first),
+    ),
+  };
+}
+
 function normalizeProfiles(value) {
   if (!Array.isArray(value)) {
     return DEFAULT_PROFILES;
@@ -374,7 +422,7 @@ router.get('/health', async (_req, res) => {
 
 router.get('/sessions', async (_req, res) => {
   try {
-    res.json(await client.listSessions());
+    res.json(sortSessionsNewestFirst(await client.listSessions()));
   } catch (error) {
     sendError(res, error);
   }

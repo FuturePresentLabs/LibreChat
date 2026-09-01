@@ -133,14 +133,24 @@ describe('Edgerunner routes', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('lists sessions through the native Edgerunner API', async () => {
-    mockFetch.mockResolvedValueOnce(await jsonResponse([{ id: 'session-1', status: 'running' }]));
+  it('lists sessions through the native Edgerunner API newest first', async () => {
+    mockFetch.mockResolvedValueOnce(
+      await jsonResponse([
+        { id: 'old-session', status: 'completed', updated_at: 1788300000000 },
+        { id: 'new-session', status: 'running', updated_at: 1788304412263 },
+        { id: 'middle-session', status: 'failed', created_at: 1788303271099 },
+      ]),
+    );
     const app = buildApp();
 
     const response = await request(app).get('/api/edgerunner/sessions');
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual([{ id: 'session-1', status: 'running' }]);
+    expect(response.body.map((session) => session.id)).toEqual([
+      'new-session',
+      'middle-session',
+      'old-session',
+    ]);
     expect(mockFetch).toHaveBeenCalledWith(
       'http://127.0.0.1:8087/v1/sessions',
       expect.objectContaining({
@@ -150,6 +160,28 @@ describe('Edgerunner routes', () => {
         }),
       }),
     );
+  });
+
+  it('sorts object-shaped session responses newest first', async () => {
+    mockFetch.mockResolvedValueOnce(
+      await jsonResponse({
+        sessions: [
+          { id: 'old-session', updated_at: 1788300000000 },
+          { id: 'new-session', updated_at: 1788304412263 },
+        ],
+        nextCursor: null,
+      }),
+    );
+    const app = buildApp();
+
+    const response = await request(app).get('/api/edgerunner/sessions');
+
+    expect(response.status).toBe(200);
+    expect(response.body.sessions.map((session) => session.id)).toEqual([
+      'new-session',
+      'old-session',
+    ]);
+    expect(response.body.nextCursor).toBeNull();
   });
 
   it('creates sessions with LibreChat actor labels', async () => {

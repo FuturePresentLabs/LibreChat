@@ -211,7 +211,7 @@ const repoSegments = (repo?: Pick<EdgerunnerRepository, 'owner' | 'name' | 'full
 };
 
 const repoLaunchValue = (repo: EdgerunnerRepository): string =>
-  repo.ssh_url || repo.clone_url || repo.html_url || repo.full_name;
+  repo.clone_url || repo.html_url || repo.full_name || repo.ssh_url;
 
 const shortSessionTitle = (session: EdgerunnerSession): string =>
   session.title || repoDisplayName(session.repo_url) || session.id;
@@ -693,14 +693,15 @@ function NewSessionComposer({
       draft.repo,
     ),
   );
+  const selectedRepoLaunchValue = selectedRepo ? repoLaunchValue(selectedRepo) : '';
 
   useEffect(() => {
     writeStoredLaunchTarget({
-      repo: draft.repo.trim(),
+      repo: selectedRepoLaunchValue || draft.repo.trim(),
       repoFullName: selectedRepo?.full_name,
       ref: draft.ref.trim(),
     });
-  }, [draft.repo, draft.ref, selectedRepo?.full_name]);
+  }, [draft.repo, draft.ref, selectedRepo?.full_name, selectedRepoLaunchValue]);
 
   const selectedRepoSegments = repoSegments(selectedRepo);
   const branchesQuery = useEdgerunnerBranchesQuery(
@@ -731,13 +732,14 @@ function NewSessionComposer({
       return;
     }
 
+    const repo = selectedRepoLaunchValue || draft.repo.trim();
     const ref = draft.ref.trim() || selectedRepo?.default_branch || branches[0]?.name || '';
     const payload: EdgerunnerCreateSessionRequest = {
       prompt,
       auto_start: false,
       start_async: true,
       ...(draft.profileId ? { profile_id: draft.profileId } : {}),
-      ...(draft.repo.trim() ? { repo_url: draft.repo.trim() } : {}),
+      ...(repo ? { repo_url: repo } : {}),
       ...(ref ? { ref } : {}),
     };
 
