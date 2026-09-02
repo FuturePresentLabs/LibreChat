@@ -152,6 +152,15 @@ function repoName(repoUrl) {
   return parts.slice(-2).join('/');
 }
 
+function normalizeRepoUrlForLaunch(value) {
+  const repoUrl = safeString(value);
+  const githubSshMatch = repoUrl.match(/^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/i);
+  if (!githubSshMatch) {
+    return repoUrl;
+  }
+  return `https://github.com/${githubSshMatch[1]}.git`;
+}
+
 function autoTitle(body) {
   const prompt = safeString(body.prompt).replace(/\s+/g, ' ');
   const repo = repoName(body.repo_url);
@@ -164,6 +173,7 @@ function createSessionPayload(body = {}) {
   const profile = findProfile(requestedProfile);
   const profileRun =
     profile && typeof profile.run === 'object' && !Array.isArray(profile.run) ? profile.run : {};
+  const repoUrl = normalizeRepoUrlForLaunch(body.repo_url);
 
   const run = {
     ...profileRun,
@@ -173,7 +183,7 @@ function createSessionPayload(body = {}) {
   };
 
   const payload = {
-    ...(safeString(body.repo_url) && { repo_url: safeString(body.repo_url) }),
+    ...(repoUrl && { repo_url: repoUrl }),
     ...(safeString(body.ref) && { ref: safeString(body.ref) }),
     ...(safeString(body.prompt) && { prompt: safeString(body.prompt) }),
     title: autoTitle(body),

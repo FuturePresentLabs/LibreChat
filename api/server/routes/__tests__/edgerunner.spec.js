@@ -211,7 +211,7 @@ describe('Edgerunner routes', () => {
     );
     expect(JSON.parse(options.body)).toEqual({
       title: 'FuturePresentLabs/example: Implement thing',
-      repo_url: 'git@github.com:FuturePresentLabs/example.git',
+      repo_url: 'https://github.com/FuturePresentLabs/example.git',
       prompt: 'Implement thing',
       auto_start: true,
       run: {
@@ -269,6 +269,7 @@ describe('Edgerunner routes', () => {
       }),
     );
     expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toMatchObject({
+      repo_url: 'https://github.com/FuturePresentLabs/example.git',
       prompt: 'Fix the startup flow',
       auto_start: false,
       run: {
