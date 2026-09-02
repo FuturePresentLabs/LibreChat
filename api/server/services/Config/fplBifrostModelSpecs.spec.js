@@ -1,0 +1,103 @@
+const {
+  buildFplBifrostModelSpecs,
+  resolveFplBifrostModelSpecs,
+} = require('./fplBifrostModelSpecs');
+
+jest.mock('@librechat/data-schemas', () => ({
+  ...jest.requireActual('@librechat/data-schemas'),
+  logger: { warn: jest.fn() },
+}));
+
+const appConfig = {
+  endpoints: {
+    custom: [{ name: 'bifrost-local' }, { name: 'bifrost-openrouter' }],
+  },
+  modelSpecs: {
+    prioritize: true,
+    list: [
+      {
+        name: 'regular-spec',
+        label: 'Regular Spec',
+        preset: { endpoint: 'openAI', model: 'gpt-4o' },
+      },
+      {
+        name: 'fpl-granite-4.1-8b',
+        label: 'Granite 4.1 8B',
+        description: 'Curated local description.',
+        group: 'bifrost-local',
+        default: true,
+        memory: true,
+        preset: { endpoint: 'bifrost-local', model: 'granite-4.1-8b' },
+      },
+      {
+        name: 'fpl-glm-5.3',
+        label: 'GLM 5.3',
+        description: 'Curated paid description.',
+        group: 'bifrost-openrouter',
+        memory: true,
+        preset: { endpoint: 'bifrost-openrouter', model: 'or/z-ai/glm-5.3' },
+      },
+    ],
+  },
+};
+
+describe('FPL Bifrost model specs', () => {
+  it('generates grouped specs from fetched Bifrost models while preserving curated specs', () => {
+    const modelSpecs = buildFplBifrostModelSpecs(appConfig, {
+      'bifrost-local': ['granite-4.1-8b', 'glm-4.6', 'or/z-ai/glm-5.3', 'or/z-ai/glm-4.6'],
+      'bifrost-openrouter': ['granite-4.1-8b', 'glm-4.6', 'or/z-ai/glm-5.3', 'or/z-ai/glm-4.6'],
+    });
+
+    expect(modelSpecs.list.map((spec) => spec.name)).toEqual([
+      'regular-spec',
+      'fpl-granite-4.1-8b',
+      'fpl-glm-5.3',
+      'fpl-glm-4-6',
+      'fpl-z-ai-glm-4-6',
+    ]);
+    expect(modelSpecs.list[1]).toMatchObject({
+      label: 'Granite 4.1 8B',
+      description: 'Curated local description.',
+      default: true,
+      preset: { endpoint: 'bifrost-local', model: 'granite-4.1-8b' },
+    });
+    expect(modelSpecs.list[3]).toMatchObject({
+      label: 'GLM 4.6',
+      description: 'Local/free model with memory enabled.',
+      group: 'bifrost-local',
+      memory: true,
+      preset: { endpoint: 'bifrost-local', model: 'glm-4.6' },
+    });
+    expect(modelSpecs.list[4]).toMatchObject({
+      label: 'GLM 4.6',
+      description: 'Paid OpenRouter model with memory enabled.',
+      group: 'bifrost-openrouter',
+      memory: true,
+      preset: { endpoint: 'bifrost-openrouter', model: 'or/z-ai/glm-4.6' },
+    });
+  });
+
+  it('leaves model specs unchanged when Bifrost endpoints are not configured', () => {
+    const baseSpecs = { list: [{ name: 'keep-me', preset: { endpoint: 'openAI' } }] };
+    const modelSpecs = buildFplBifrostModelSpecs(
+      { endpoints: { custom: [{ name: 'other' }] }, modelSpecs: baseSpecs },
+      { other: ['glm-4.6'] },
+    );
+
+    expect(modelSpecs).toBe(baseSpecs);
+  });
+
+  it('falls back to configured specs when resolving fetched models fails', async () => {
+    const { logger } = require('@librechat/data-schemas');
+    const resolved = await resolveFplBifrostModelSpecs({
+      req: { user: { id: 'user-1' } },
+      appConfig,
+      loadModels: jest.fn().mockRejectedValue(new Error('models unavailable')),
+    });
+
+    expect(resolved).toBe(appConfig.modelSpecs);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to auto-generate FPL Bifrost model specs'),
+    );
+  });
+});

@@ -107,6 +107,15 @@ function EndpointMenuContent({
     }
     return modelSpecs.filter((spec: TModelSpec) => spec.group === endpoint.value);
   }, [modelSpecs, endpoint.value]);
+  const specModels = useMemo(
+    () =>
+      new Set(
+        endpointSpecs
+          .map((spec: TModelSpec) => spec.preset?.model)
+          .filter((model): model is string => typeof model === 'string' && model.length > 0),
+      ),
+    [endpointSpecs],
+  );
 
   if (isAssistantsEndpoint(endpoint.value) && endpoint.models === undefined) {
     return (
@@ -129,7 +138,11 @@ function EndpointMenuContent({
         assistantsMap,
       )
     : null;
-  const renderedModels = filteredModels ?? endpoint.models?.map((model) => model.name) ?? [];
+  const renderedModels = (
+    filteredModels ??
+    endpoint.models?.map((model) => model.name) ??
+    []
+  ).filter((model) => !specModels.has(model));
   const showMarketplace =
     endpoint.showMarketplace === true && marketplaceSearchMatches(searchValue, localize);
   const hasSelectableRows = endpointSpecs.length > 0 || renderedModels.length > 0;

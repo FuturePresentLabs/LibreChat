@@ -18,6 +18,7 @@ const { hasCapability, hasConfigCapability } = require('~/server/middleware/role
 const { getLdapConfig } = require('~/server/services/Config/ldap');
 const { getRumConfig } = require('~/server/services/Config/rum');
 const { getAppConfig } = require('~/server/services/Config/app');
+const { resolveFplBifrostModelSpecs } = require('~/server/services/Config/fplBifrostModelSpecs');
 
 const router = express.Router();
 const emailLoginEnabled =
@@ -278,6 +279,8 @@ router.get('/', async function (req, res) {
       }
     }
 
+    const modelSpecs = await resolveFplBifrostModelSpecs({ req, appConfig });
+
     /** @type {TStartupConfig} */
     const payload = {
       ...preLoginPayload,
@@ -291,7 +294,7 @@ router.get('/', async function (req, res) {
         endpoint: EModelEndpoint.agents,
       }),
       turnstile: appConfig?.turnstileConfig,
-      modelSpecs: sanitizeModelSpecs(excludeHiddenModelSpecs(appConfig?.modelSpecs)),
+      modelSpecs: sanitizeModelSpecs(excludeHiddenModelSpecs(modelSpecs)),
       balance: balanceConfig,
       bundlerURL: process.env.SANDPACK_BUNDLER_URL,
       staticBundlerURL: process.env.SANDPACK_STATIC_BUNDLER_URL,
