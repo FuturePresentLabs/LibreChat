@@ -224,20 +224,6 @@ const sessionToConversation = (session: EdgerunnerSession): TConversation =>
     updatedAt: timestampIso(session.updated_at ?? session.created_at),
   }) as TConversation;
 
-const statusTone = (status?: string) => {
-  const normalized = String(status ?? '').toLowerCase();
-  if (normalized === 'running' || normalized === 'dispatched') {
-    return 'border-status-info-border bg-status-info-subtle text-status-info';
-  }
-  if (normalized === 'completed' || normalized === 'waiting') {
-    return 'border-status-success-border bg-status-success-subtle text-status-success';
-  }
-  if (normalized === 'failed' || normalized === 'cancelled' || normalized === 'canceled') {
-    return 'border-status-error-border bg-status-error-subtle text-status-error';
-  }
-  return 'border-border-light bg-surface-tertiary text-text-secondary';
-};
-
 const profileLabel = (profiles: EdgerunnerProfile[], profileId: string): string => {
   if (!profileId) {
     return profiles[0]?.label || 'Default';
@@ -245,25 +231,145 @@ const profileLabel = (profiles: EdgerunnerProfile[], profileId: string): string 
   return profiles.find((profile) => profile.id === profileId)?.label || 'Default';
 };
 
-const sessionStatusIcon = (status?: string) => {
+const humanizeStatus = (value?: string): string =>
+  String(value || 'unknown')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+const vmStatusForSession = (session?: EdgerunnerSession): string => {
+  const explicit = String(session?.vm_status ?? '').toLowerCase();
+  if (explicit) {
+    return explicit;
+  }
+  const status = String(session?.status ?? '').toLowerCase();
+  if (status === 'starting') {
+    return 'starting';
+  }
   if (status === 'running') {
-    return <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />;
+    return 'online';
   }
-  if (status === 'completed') {
-    return <CheckCircle2 className="size-4" aria-hidden="true" />;
+  if (status === 'suspended') {
+    return 'paused';
   }
-  return <TerminalSquare className="size-4" aria-hidden="true" />;
+  if (status === 'waiting') {
+    return session?.run_id ? 'offline' : 'pending';
+  }
+  return 'offline';
 };
 
-function StateBadge({ status }: { status?: string }) {
+const vmStatusClasses = (status: string): string => {
+  if (status === 'online') {
+    return 'bg-green-500 text-status-success';
+  }
+  if (status === 'starting') {
+    return 'bg-blue-500 text-status-info';
+  }
+  if (status === 'paused') {
+    return 'bg-amber-500 text-status-warning';
+  }
+  if (status === 'offline') {
+    return 'bg-red-500 text-status-error';
+  }
+  return 'bg-surface-tertiary text-text-secondary';
+};
+
+function VmStatusBadge({ session }: { session?: EdgerunnerSession }) {
+  const status = vmStatusForSession(session);
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border-light bg-surface-secondary px-2 py-1 text-xs font-medium text-text-secondary">
+      <span
+        className={cn(
+          'size-2 rounded-full shadow-[0_0_0_2px_rgba(0,0,0,0.04)]',
+          vmStatusClasses(status),
+        )}
+        aria-hidden="true"
+      />
+      <span className="truncate">VM {humanizeStatus(status)}</span>
+    </span>
+  );
+}
+
+const activeAgentStatuses = new Set([
+  'started',
+  'running',
+  'planning',
+  'changing_files',
+  'validating',
+]);
+
+const idleAgentStatuses = new Set([
+  'completed',
+  'validation_passed',
+  'needs_approval',
+  'question',
+  'pr_ready',
+]);
+
+const latestActivityTitle = (events: EdgerunnerEvent[]): string | undefined => {
+  for (const event of events.slice().reverse()) {
+    const kind = String(event.kind ?? '').toLowerCase();
+    if (!['agent_progress', 'run_started', 'agent_started', 'validation_started'].includes(kind)) {
+      continue;
+    }
+    const data =
+      event.data && typeof event.data === 'object' && !Array.isArray(event.data) ? event.data : {};
+    const title = String(data.title || event.message || '').trim();
+    if (title) {
+      return humanizeStatus(title);
+    }
+  }
+  return undefined;
+};
+
+function AgentActivityBadge({
+  session,
+  events,
+}: {
+  session?: EdgerunnerSession;
+  events: EdgerunnerEvent[];
+}) {
+  const sessionStatus = String(session?.status ?? '').toLowerCase();
+  const agentStatus = String(session?.agent_status ?? '').toLowerCase();
+  const active =
+    activeAgentStatuses.has(agentStatus) ||
+    (!agentStatus && (sessionStatus === 'starting' || sessionStatus === 'running'));
+  const failed = agentStatus === 'failed' || sessionStatus === 'failed';
+  const idle = idleAgentStatuses.has(agentStatus) || sessionStatus === 'completed';
+  const activityTitle = latestActivityTitle(events);
+  const label =
+    active && activityTitle
+      ? activityTitle
+      : agentStatus
+        ? humanizeStatus(agentStatus)
+        : idle
+          ? 'Done'
+          : sessionStatus
+            ? humanizeStatus(sessionStatus)
+            : 'Idle';
+
   return (
     <span
       className={cn(
-        'inline-flex max-w-full items-center rounded-md border px-2 py-1 text-xs font-medium capitalize',
-        statusTone(status),
+        'inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium',
+        failed
+          ? 'border-status-error-border bg-status-error-subtle text-status-error'
+          : active
+            ? 'border-status-info-border bg-status-info-subtle text-status-info'
+            : idle
+              ? 'border-status-success-border bg-status-success-subtle text-status-success'
+              : 'border-border-light bg-surface-tertiary text-text-secondary',
       )}
     >
-      <span className="truncate">{status || 'unknown'}</span>
+      {active ? (
+        <LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
+      ) : idle ? (
+        <CheckCircle2 className="size-3.5 shrink-0" aria-hidden="true" />
+      ) : failed ? (
+        <OctagonX className="size-3.5 shrink-0" aria-hidden="true" />
+      ) : (
+        <TerminalSquare className="size-3.5 shrink-0" aria-hidden="true" />
+      )}
+      <span className="truncate">{label}</span>
     </span>
   );
 }
@@ -964,7 +1070,11 @@ function ActivityTranscriptRow({ item }: { item: TranscriptItem }) {
             open={hasBody && !item.collapsed}
           >
             <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 [&::-webkit-details-marker]:hidden">
-              <Wrench className="size-4 shrink-0" aria-hidden="true" />
+              {item.tone === 'running' ? (
+                <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden="true" />
+              ) : (
+                <Wrench className="size-4 shrink-0" aria-hidden="true" />
+              )}
               <span className="min-w-0 flex-1 truncate font-medium">{item.title}</span>
               {hasBody ? (
                 <ChevronDown
@@ -1327,6 +1437,7 @@ function Inspector({
 
 function ChatHeader({
   session,
+  events,
   sessions,
   selectedSessionId,
   sessionsLoading,
@@ -1337,6 +1448,7 @@ function ChatHeader({
   onRefresh,
 }: {
   session?: EdgerunnerSession;
+  events: EdgerunnerEvent[];
   sessions: EdgerunnerSession[];
   selectedSessionId?: string;
   sessionsLoading: boolean;
@@ -1351,15 +1463,19 @@ function ChatHeader({
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-border-light bg-surface-primary px-3 md:px-4">
       <div className="flex min-w-0 items-center gap-3">
         <OpenSidebar className="md:hidden" />
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-secondary text-text-secondary">
-          {sessionStatusIcon(session?.status)}
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border-light bg-surface-secondary">
+          <span
+            className={cn('size-2.5 rounded-full', vmStatusClasses(vmStatusForSession(session)))}
+            aria-hidden="true"
+          />
         </div>
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-text-primary">
             {session ? shortSessionTitle(session) : localize('com_edgerunner_title')}
           </div>
           <div className="flex min-w-0 items-center gap-2 text-xs text-text-tertiary">
-            {session ? <StateBadge status={session.status} /> : null}
+            {session ? <VmStatusBadge session={session} /> : null}
+            {session ? <AgentActivityBadge session={session} events={events} /> : null}
             <span className="truncate">{profile}</span>
             {session?.repo_url ? (
               <>
@@ -1468,6 +1584,7 @@ function SessionWorkspace({
     return (
       <main className="flex min-w-0 flex-1 flex-col bg-surface-primary">
         <ChatHeader
+          events={[]}
           sessions={sessions}
           selectedSessionId={sessionId}
           sessionsLoading={sessionsLoading}
@@ -1489,6 +1606,7 @@ function SessionWorkspace({
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
         <ChatHeader
           session={session}
+          events={events}
           sessions={sessions}
           selectedSessionId={sessionId}
           sessionsLoading={sessionsLoading}

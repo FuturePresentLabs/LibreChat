@@ -27,19 +27,18 @@ const CHECK_MARK_CODEPOINT = 10003;
 const CROSS_MARK_CODEPOINT = 10007;
 const FOUR_SPOKED_ASTERISK_CODEPOINT = 10033;
 
-const noisyEventKinds = new Set([
-  'agent_heartbeat',
-  'session_created',
-  'run_started',
-  'agent_started',
-]);
+const noisyEventKinds = new Set(['agent_heartbeat', 'session_created']);
 const toolEventFragments = ['tool', 'call', 'bash', 'stdout', 'stderr', 'log'];
 const visibleActivityKinds = new Set([
   'files_changed',
+  'run_started',
+  'agent_started',
   'plan_ready',
   'pr_ready',
   'run_completed',
   'run_failed',
+  'validation_started',
+  'validation_passed',
   'validation_failed',
 ]);
 
@@ -191,6 +190,18 @@ const humanizeKind = (kind: string): string =>
     .trim();
 
 const activityTitleForKind = (kind: string): string | undefined => {
+  if (kind === 'run_started') {
+    return 'Runtime started';
+  }
+  if (kind === 'agent_started') {
+    return 'Agent started';
+  }
+  if (kind === 'validation_started') {
+    return 'Checking changes';
+  }
+  if (kind === 'validation_passed') {
+    return 'Checks passed';
+  }
   if (kind === 'validation_failed') {
     return 'Check failed';
   }
@@ -215,6 +226,10 @@ const eventTitle = (event: EdgerunnerEvent): string => {
   );
   if (toolName && eventRole(event) === 'tool') {
     return toolName;
+  }
+  const explicitTitle = firstString(payload?.title);
+  if (explicitTitle) {
+    return explicitTitle;
   }
   if ((kind === 'agent_progress' || kind.endsWith('_delta')) && firstString(payload?.content)) {
     return 'Assistant';
@@ -284,9 +299,12 @@ const shouldHideEvent = (event: EdgerunnerEvent): boolean => {
 
 const isActivityEvent = (event: EdgerunnerEvent): boolean => {
   const kind = String(event.kind ?? '').toLowerCase();
+  const payload = eventPayload(event);
+  const lifecycleProgress = kind === 'agent_progress' && !firstString(payload?.content);
   return (
     eventRole(event) === 'tool' ||
     visibleActivityKinds.has(kind) ||
+    lifecycleProgress ||
     kind.includes('approval') ||
     kind.includes('question')
   );

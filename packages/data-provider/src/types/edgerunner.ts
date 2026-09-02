@@ -89,6 +89,9 @@ export type EdgerunnerSession = EdgerunnerJsonObject & {
   ref?: string;
   model?: string;
   agent?: string;
+  vm_status?: string;
+  agent_status?: string;
+  idle_expires_at?: number;
   labels?: Record<string, string>;
   created_at?: number;
   updated_at?: number;

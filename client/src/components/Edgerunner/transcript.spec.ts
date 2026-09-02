@@ -83,7 +83,7 @@ describe('Edgerunner transcript mapping', () => {
     });
   });
 
-  it('hides routine startup events but keeps failed runs visible', () => {
+  it('keeps startup progress compact and hides only session bookkeeping', () => {
     const events: EdgerunnerEvent[] = [
       { id: 1, kind: 'session_created', message: 'session created' },
       { id: 2, kind: 'run_started', message: 'run started', data: { runtime: 'shroud' } },
@@ -98,8 +98,14 @@ describe('Edgerunner transcript mapping', () => {
 
     const transcript = transcriptFromEvents(events, session({ prompt: 'Clone this repo' }));
 
-    expect(transcript.map((item) => item.title)).toEqual(['Request', 'Run failed']);
-    expect(transcript[1]).toMatchObject({ kind: 'activity', tone: 'error' });
+    expect(transcript.map((item) => item.title)).toEqual([
+      'Request',
+      'Runtime started',
+      'Agent started',
+      'Run failed',
+    ]);
+    expect(transcript[1]).toMatchObject({ kind: 'activity', tone: 'running' });
+    expect(transcript[3]).toMatchObject({ kind: 'activity', tone: 'error' });
   });
 
   it('maps native tool events to compact activity items', () => {
