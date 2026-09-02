@@ -15,6 +15,21 @@ const DEFAULT_PROFILES = [
     id: 'standard',
     label: 'Standard',
     description: 'General coding agent',
+    model: 'bifrost/GLM-5.3-Flash',
+    agent: 'build',
+    run: {
+      mode: 'serve',
+      retention: 'keep',
+      bifrost: {
+        model: 'GLM-5.3-Flash',
+        client: 'edgerunner',
+        project: 'edgerunner',
+        workflow: 'librechat-agent',
+        billing_account_id: 'edgerunner:librechat',
+        scopes: ['chat.completions'],
+        ttl_seconds: 3600,
+      },
+    },
   },
 ];
 
@@ -179,7 +194,8 @@ function createSessionPayload(body = {}) {
     ...profileRun,
     ...(safeString(profile.model) && { model: safeString(profile.model) }),
     ...(safeString(profile.agent) && { agent: safeString(profile.agent) }),
-    retention: safeString(profileRun.retention) || 'snapshot',
+    mode: safeString(profileRun.mode) || 'serve',
+    retention: safeString(profileRun.retention) || 'keep',
   };
 
   const payload = {

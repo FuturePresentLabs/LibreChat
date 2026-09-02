@@ -215,7 +215,19 @@ describe('Edgerunner routes', () => {
       prompt: 'Implement thing',
       auto_start: true,
       run: {
-        retention: 'snapshot',
+        mode: 'serve',
+        retention: 'keep',
+        model: 'bifrost/GLM-5.3-Flash',
+        agent: 'build',
+        bifrost: {
+          model: 'GLM-5.3-Flash',
+          client: 'edgerunner',
+          project: 'edgerunner',
+          workflow: 'librechat-agent',
+          billing_account_id: 'edgerunner:librechat',
+          scopes: ['chat.completions'],
+          ttl_seconds: 3600,
+        },
       },
       labels: {
         project: 'fpl-ai',
@@ -277,7 +289,8 @@ describe('Edgerunner routes', () => {
         timeout_seconds: 1200,
         model: 'fpl/agent',
         agent: 'codex',
-        retention: 'snapshot',
+        mode: 'serve',
+        retention: 'keep',
       },
     });
     expect(mockFetch.mock.calls[1][0]).toBe('http://127.0.0.1:8087/v1/sessions/session-1/messages');
@@ -295,7 +308,8 @@ describe('Edgerunner routes', () => {
         timeout_seconds: 1200,
         model: 'fpl/agent',
         agent: 'codex',
-        retention: 'snapshot',
+        mode: 'serve',
+        retention: 'keep',
       },
       labels: {
         'fpl.librechat.user_id': 'user-1',
@@ -445,7 +459,8 @@ describe('Edgerunner routes', () => {
         timeout_seconds: 1200,
         model: 'fpl/agent',
         agent: 'codex',
-        retention: 'snapshot',
+        mode: 'serve',
+        retention: 'keep',
       },
       labels: {
         'fpl.edgerunner.profile': 'careful',

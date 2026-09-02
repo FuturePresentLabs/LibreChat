@@ -26,7 +26,7 @@ export type EdgerunnerHealthResponse = {
 
 export type EdgerunnerRunOptions = EdgerunnerJsonObject & {
   validate?: string;
-  retention?: 'delete' | 'snapshot' | 'keep' | string;
+  retention?: 'delete' | 'keep' | string;
   model?: string;
   agent?: string;
   auto_approve?: boolean;
