@@ -298,7 +298,9 @@ export async function fetchModels({
         await cache.set(getModelCacheTokenConfigKey(cacheKey), endpointTokenConfig);
       }
     }
-    models = input.data.map((item: { id: string }) => item.id);
+    models = input.data
+      .filter((item: { routable?: boolean }) => item.routable !== false)
+      .map((item: { id: string }) => item.id);
   } catch (error) {
     const logMessage = `Failed to fetch models from ${azure ? 'Azure ' : ''}${name} API`;
     logAxiosError({ message: logMessage, error: error as Error });

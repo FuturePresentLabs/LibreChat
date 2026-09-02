@@ -1,14 +1,25 @@
-const { normalizeEndpointName } = require('librechat-data-provider');
+const { extractEnvVariable, normalizeEndpointName } = require('librechat-data-provider');
+const { resolveConfigSecret, resolveHeaders } = require('@librechat/api');
 const { logger } = require('@librechat/data-schemas');
 const loadConfigModels = require('./loadConfigModels');
 
 const LOCAL_ENDPOINT = 'bifrost-local';
 const PAID_ENDPOINT = 'bifrost-openrouter';
 const BIFROST_ENDPOINTS = new Set([LOCAL_ENDPOINT, PAID_ENDPOINT]);
+const LOCAL_MODEL_OWNER_PATTERNS = [/^vllm$/i, /^yggdrasil\//i];
+const NON_CHAT_MODEL_PATTERNS = [
+  /^or-(img|tts|ocr|video)\//i,
+  /(^|\/)(tts|stt|ocr|image|video|music|transcribe)(-|\/|$)/i,
+  /(^|\/)whisper/i,
+  /macos-say/i,
+];
 
 function modelName(model) {
   if (typeof model === 'string') {
     return model;
+  }
+  if (typeof model?.id === 'string') {
+    return model.id;
   }
   return typeof model?.name === 'string' ? model.name : '';
 }
@@ -33,8 +44,33 @@ function isPaidBifrostModel(model) {
   return model.toLowerCase().startsWith('or/');
 }
 
+function isLocalBifrostModelRow(item) {
+  const owner = item?.owned_by;
+  return (
+    typeof owner === 'string' && LOCAL_MODEL_OWNER_PATTERNS.some((pattern) => pattern.test(owner))
+  );
+}
+
+function isChatModel(model) {
+  return !NON_CHAT_MODEL_PATTERNS.some((pattern) => pattern.test(model));
+}
+
 function targetEndpointForModel(model) {
   return isPaidBifrostModel(model) ? PAID_ENDPOINT : LOCAL_ENDPOINT;
+}
+
+function targetEndpointForModelRow(item) {
+  const model = modelName(item);
+  if (!model || item?.routable === false || !isChatModel(model)) {
+    return undefined;
+  }
+  if (isPaidBifrostModel(model)) {
+    return PAID_ENDPOINT;
+  }
+  if (typeof item === 'string' || isLocalBifrostModelRow(item)) {
+    return LOCAL_ENDPOINT;
+  }
+  return undefined;
 }
 
 function defaultDescription(endpoint) {
@@ -81,9 +117,28 @@ function uniqueSpecName(base, seen) {
   return candidate;
 }
 
-function collectDiscoveredModels(appConfig, modelsConfig) {
+function collectDiscoveredModelRows(appConfig, modelRows) {
   const endpointNames = bifrostEndpointNames(appConfig);
   const discovered = new Map();
+
+  for (const item of modelRows ?? []) {
+    const model = modelName(item);
+    const endpoint = targetEndpointForModelRow(item);
+    if (!endpoint || !endpointNames.has(endpoint)) {
+      continue;
+    }
+    discovered.set(`${endpoint}\u0000${model}`, { endpoint, model });
+  }
+
+  return discovered;
+}
+
+function collectDiscoveredModels(appConfig, modelsConfig, rawModelRows) {
+  const endpointNames = bifrostEndpointNames(appConfig);
+  const discovered = collectDiscoveredModelRows(appConfig, rawModelRows);
+  if (discovered.size > 0) {
+    return discovered;
+  }
 
   for (const [name, models] of Object.entries(modelsConfig ?? {})) {
     const normalizedName = normalizeEndpointName(name);
@@ -139,13 +194,13 @@ function buildGeneratedSpec({ existingSpec, endpoint, model, seenSpecNames }) {
   };
 }
 
-function buildFplBifrostModelSpecs(appConfig, modelsConfig) {
+function buildFplBifrostModelSpecs(appConfig, modelsConfig, rawModelRows) {
   const baseModelSpecs = appConfig?.modelSpecs;
   if (!hasFplBifrostEndpoints(appConfig)) {
     return baseModelSpecs;
   }
 
-  const discovered = collectDiscoveredModels(appConfig, modelsConfig);
+  const discovered = collectDiscoveredModels(appConfig, modelsConfig, rawModelRows);
   if (discovered.size === 0) {
     return baseModelSpecs;
   }
@@ -189,9 +244,63 @@ function buildFplBifrostModelSpecs(appConfig, modelsConfig) {
   };
 }
 
-async function resolveFplBifrostModelSpecs({ req, appConfig, loadModels = loadConfigModels }) {
+function bifrostModelEndpoint(appConfig) {
+  const endpoints = appConfig?.endpoints?.custom;
+  if (!Array.isArray(endpoints)) {
+    return undefined;
+  }
+  return endpoints.find((endpoint) => BIFROST_ENDPOINTS.has(endpointName(endpoint)));
+}
+
+async function fetchRawBifrostModels({ req, appConfig }) {
+  const endpoint = bifrostModelEndpoint(appConfig);
+  if (!endpoint?.baseURL || !endpoint?.apiKey) {
+    return [];
+  }
+
+  const baseURL = extractEnvVariable(endpoint.baseURL);
+  const apiKey = resolveConfigSecret(endpoint.apiKey);
+  if (!baseURL || !apiKey) {
+    return [];
+  }
+
+  const headers = resolveHeaders({
+    headers: endpoint.headers ?? undefined,
+    user: req.user,
+    stripUnresolved: true,
+  });
+  const hasAuthHeader = Object.keys(headers).some((key) => key.toLowerCase() === 'authorization');
+  if (!hasAuthHeader) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  const response = await fetch(`${baseURL.replace(/\/+$/, '')}/models`, { headers });
+  if (!response.ok) {
+    throw new Error(`Bifrost model metadata returned ${response.status}`);
+  }
+  const body = await response.json();
+  return Array.isArray(body?.data) ? body.data : [];
+}
+
+async function resolveFplBifrostModelSpecs({
+  req,
+  appConfig,
+  loadModels = loadConfigModels,
+  loadRawModels = fetchRawBifrostModels,
+}) {
   if (!hasFplBifrostEndpoints(appConfig)) {
     return appConfig?.modelSpecs;
+  }
+
+  let rawModelRows = [];
+  try {
+    rawModelRows = await loadRawModels({ req, appConfig });
+  } catch (error) {
+    logger.warn(`[config] Failed to fetch FPL Bifrost model metadata: ${error.message}`);
+  }
+
+  if (rawModelRows.length > 0) {
+    return buildFplBifrostModelSpecs(appConfig, undefined, rawModelRows);
   }
 
   try {
@@ -199,11 +308,13 @@ async function resolveFplBifrostModelSpecs({ req, appConfig, loadModels = loadCo
     return buildFplBifrostModelSpecs(appConfig, modelsConfig);
   } catch (error) {
     logger.warn(`[config] Failed to auto-generate FPL Bifrost model specs: ${error.message}`);
-    return appConfig?.modelSpecs;
   }
+
+  return appConfig?.modelSpecs;
 }
 
 module.exports = {
   buildFplBifrostModelSpecs,
+  fetchRawBifrostModels,
   resolveFplBifrostModelSpecs,
 };

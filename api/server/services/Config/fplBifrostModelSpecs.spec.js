@@ -77,6 +77,29 @@ describe('FPL Bifrost model specs', () => {
     });
   });
 
+  it('uses Bifrost model metadata to keep local/free specs node-backed and chat-only', () => {
+    const modelSpecs = buildFplBifrostModelSpecs(appConfig, undefined, [
+      { id: 'granite-4.1-8b', owned_by: 'vllm', routable: true },
+      { id: 'mac/local/qwen3.8-27b-mlx-4bit', owned_by: 'yggdrasil/averys-mac-studio' },
+      { id: 'mac/fpl/transcribe', owned_by: 'yggdrasil/averys-mac-studio', routable: true },
+      { id: 'mac/fpl/tts-fast', owned_by: 'yggdrasil/averys-mac-studio', routable: true },
+      { id: 'kimi/kimi-k3', owned_by: 'moonshot', routable: true },
+      { id: 'gpt-oss-20b', owned_by: 'freetoken', routable: true },
+      { id: 'cold-local', owned_by: 'yggdrasil/cold-node', routable: false },
+      { id: 'or/z-ai/glm-5.3', owned_by: 'openrouter', routable: true },
+      { id: 'or-img/black-forest-labs/flux.2-pro', owned_by: 'openrouter-images' },
+    ]);
+
+    expect(
+      modelSpecs.list.map((spec) => [spec.group ?? spec.preset.endpoint, spec.preset.model]),
+    ).toEqual([
+      ['openAI', 'gpt-4o'],
+      ['bifrost-local', 'granite-4.1-8b'],
+      ['bifrost-openrouter', 'or/z-ai/glm-5.3'],
+      ['bifrost-local', 'mac/local/qwen3.8-27b-mlx-4bit'],
+    ]);
+  });
+
   it('leaves model specs unchanged when Bifrost endpoints are not configured', () => {
     const baseSpecs = { list: [{ name: 'keep-me', preset: { endpoint: 'openAI' } }] };
     const modelSpecs = buildFplBifrostModelSpecs(
@@ -99,5 +122,21 @@ describe('FPL Bifrost model specs', () => {
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('Failed to auto-generate FPL Bifrost model specs'),
     );
+  });
+
+  it('uses raw Bifrost metadata before falling back to string-only model fetches', async () => {
+    const resolved = await resolveFplBifrostModelSpecs({
+      req: { user: { id: 'user-1' } },
+      appConfig,
+      loadRawModels: jest.fn().mockResolvedValue([
+        { id: 'granite-4.1-8b', owned_by: 'vllm', routable: true },
+        { id: 'kimi/kimi-k3', owned_by: 'moonshot', routable: true },
+      ]),
+      loadModels: jest.fn().mockResolvedValue({
+        'bifrost-local': ['kimi/kimi-k3'],
+      }),
+    });
+
+    expect(resolved.list.map((spec) => spec.preset?.model)).toEqual(['gpt-4o', 'granite-4.1-8b']);
   });
 });

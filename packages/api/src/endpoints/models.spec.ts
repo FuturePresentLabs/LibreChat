@@ -95,6 +95,27 @@ describe('fetchModels', () => {
     );
   });
 
+  it('filters OpenAI-compatible model rows explicitly marked non-routable', async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        data: [
+          { id: 'active-model', routable: true },
+          { id: 'inventory-only', routable: false },
+          { id: 'legacy-model' },
+        ],
+      },
+    });
+
+    const models = await fetchModels({
+      user: 'user123',
+      apiKey: 'testApiKey',
+      baseURL: 'https://api.test.com',
+      name: 'TestAPI',
+    });
+
+    expect(models).toEqual(['active-model', 'legacy-model']);
+  });
+
   it('adds the user ID to the models query when option and ID are passed', async () => {
     const models = await fetchModels({
       user: 'user123',
