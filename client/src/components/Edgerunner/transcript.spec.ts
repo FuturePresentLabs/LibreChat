@@ -104,8 +104,33 @@ describe('Edgerunner transcript mapping', () => {
       'Agent started',
       'Run failed',
     ]);
-    expect(transcript[1]).toMatchObject({ kind: 'activity', tone: 'running' });
+    expect(transcript[1]).toMatchObject({ kind: 'activity', tone: 'success', active: false });
     expect(transcript[3]).toMatchObject({ kind: 'activity', tone: 'error' });
+  });
+
+  it('only keeps the latest lifecycle progress active for running sessions', () => {
+    const transcript = transcriptFromEvents(
+      [
+        {
+          id: 20,
+          kind: 'agent_progress',
+          message: 'runtime queued',
+          data: { phase: 'queued', title: 'Runtime queued' },
+        },
+        {
+          id: 21,
+          kind: 'agent_progress',
+          message: 'prompt submitted',
+          data: { phase: 'opencode_prompt_submitted', title: 'Prompt submitted' },
+        },
+      ],
+      session({ prompt: 'Inspect package metadata', status: 'running', agent_status: 'running' }),
+    );
+
+    expect(transcript.slice(1).map((item) => [item.title, item.tone, item.active])).toEqual([
+      ['Runtime queued', 'success', false],
+      ['Prompt submitted', 'running', true],
+    ]);
   });
 
   it('maps native tool events to compact activity items', () => {
@@ -165,6 +190,37 @@ describe('Edgerunner transcript mapping', () => {
       ['user', 'message', 'User', 'Inspect package metadata'],
       ['agent', 'message', 'Assistant', 'I am checking the repository now.'],
       ['tool', 'activity', 'Read', undefined],
+    ]);
+  });
+
+  it('merges assistant stream chunks into one assistant message', () => {
+    const transcript = transcriptFromEvents(
+      [
+        {
+          id: 31,
+          kind: 'assistant_delta',
+          data: { role: 'assistant', content: 'I am checking' },
+          created_at: 1788237894076,
+        },
+        {
+          id: 32,
+          kind: 'assistant_delta',
+          data: { role: 'assistant', content: ' the repo now.' },
+          created_at: 1788237895076,
+        },
+        {
+          id: 33,
+          kind: 'message_completed',
+          data: { role: 'assistant', content: 'I am checking the repo now.' },
+          created_at: 1788237896076,
+        },
+      ],
+      session({ prompt: 'Inspect package metadata' }),
+    );
+
+    expect(transcript.map((item) => [item.role, item.kind, item.title, item.body])).toEqual([
+      ['user', 'message', 'Request', 'Inspect package metadata'],
+      ['agent', 'message', 'Assistant', 'I am checking the repo now.'],
     ]);
   });
 });

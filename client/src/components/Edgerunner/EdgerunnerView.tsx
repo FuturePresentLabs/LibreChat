@@ -1052,6 +1052,16 @@ const activityToneClasses = (tone: TranscriptItem['tone']) => {
 
 function ActivityTranscriptRow({ item }: { item: TranscriptItem }) {
   const hasBody = Boolean(item.body);
+  const icon =
+    item.tone === 'running' && item.active ? (
+      <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden="true" />
+    ) : item.tone === 'success' ? (
+      <CheckCircle2 className="size-4 shrink-0" aria-hidden="true" />
+    ) : item.tone === 'error' ? (
+      <OctagonX className="size-4 shrink-0" aria-hidden="true" />
+    ) : (
+      <Wrench className="size-4 shrink-0" aria-hidden="true" />
+    );
 
   return (
     <div className="w-full border-0 bg-transparent text-text-primary">
@@ -1067,14 +1077,10 @@ function ActivityTranscriptRow({ item }: { item: TranscriptItem }) {
               'group ml-0 min-w-0 max-w-full rounded-md border text-sm md:ml-8',
               activityToneClasses(item.tone),
             )}
-            open={hasBody && !item.collapsed}
+            defaultOpen={hasBody && !item.collapsed}
           >
             <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 [&::-webkit-details-marker]:hidden">
-              {item.tone === 'running' ? (
-                <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden="true" />
-              ) : (
-                <Wrench className="size-4 shrink-0" aria-hidden="true" />
-              )}
+              {icon}
               <span className="min-w-0 flex-1 truncate font-medium">{item.title}</span>
               {hasBody ? (
                 <ChevronDown

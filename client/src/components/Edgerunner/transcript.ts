@@ -16,6 +16,7 @@ export type TranscriptItem = {
   kind?: 'message' | 'activity';
   tone?: 'neutral' | 'running' | 'success' | 'warning' | 'error';
   collapsed?: boolean;
+  active?: boolean;
 };
 
 const ESCAPE_CHARACTER = String.fromCharCode(27);
@@ -105,6 +106,9 @@ const eventPayload = (event: EdgerunnerEvent): EdgerunnerJsonObject | undefined 
   const report = isJsonObject(data?.report) ? data.report : undefined;
   return report ?? data;
 };
+
+const eventPhase = (event: EdgerunnerEvent): string =>
+  stringValue(eventPayload(event)?.phase)?.toLowerCase() ?? '';
 
 const nestedMessagePayload = (
   payload: EdgerunnerJsonObject | undefined,
@@ -266,6 +270,8 @@ const eventTone = (event: EdgerunnerEvent): TranscriptItem['tone'] => {
   const kind = String(event.kind ?? '').toLowerCase();
   const payload = eventPayload(event);
   const exitCode = typeof payload?.exit_code === 'number' ? payload.exit_code : undefined;
+  const phase = eventPhase(event);
+  const agentStatus = stringValue(payload?.agent_status)?.toLowerCase();
   if (
     kind.includes('failed') ||
     kind.includes('error') ||
@@ -274,7 +280,13 @@ const eventTone = (event: EdgerunnerEvent): TranscriptItem['tone'] => {
   ) {
     return 'error';
   }
-  if (kind.includes('completed') || kind.includes('passed') || kind === 'run_completed') {
+  if (
+    kind.includes('completed') ||
+    kind.includes('passed') ||
+    kind === 'run_completed' ||
+    phase === 'agent_idle' ||
+    agentStatus === 'completed'
+  ) {
     return 'success';
   }
   if (kind.includes('approval') || kind.includes('question')) {
@@ -284,6 +296,30 @@ const eventTone = (event: EdgerunnerEvent): TranscriptItem['tone'] => {
     return 'running';
   }
   return 'neutral';
+};
+
+const isRunningActivityEvent = (event: EdgerunnerEvent): boolean => {
+  if (eventTone(event) !== 'running') {
+    return false;
+  }
+  const kind = String(event.kind ?? '').toLowerCase();
+  return (
+    kind === 'agent_progress' ||
+    kind === 'run_started' ||
+    kind === 'agent_started' ||
+    kind === 'validation_started'
+  );
+};
+
+const isActiveSession = (session: EdgerunnerSession): boolean => {
+  const status = stringValue(session.status)?.toLowerCase();
+  const agentStatus = stringValue(session.agent_status)?.toLowerCase();
+  return (
+    agentStatus === 'running' ||
+    agentStatus === 'started' ||
+    status === 'starting' ||
+    status === 'running'
+  );
 };
 
 const shouldHideEvent = (event: EdgerunnerEvent): boolean => {
@@ -501,35 +537,91 @@ export const transcriptFromMessages = (
   return transcript;
 };
 
-export const transcriptFromEvents = (events: EdgerunnerEvent[], session: EdgerunnerSession) =>
-  transcriptFromMessages([], session).concat(
-    events.flatMap((event, index): TranscriptItem[] => {
-      if (shouldHideEvent(event)) {
-        return [];
-      }
+const isAssistantDelta = (item: TranscriptItem): boolean =>
+  item.kind === 'message' &&
+  item.role === 'agent' &&
+  String(item.raw?.kind ?? '').toLowerCase() === 'assistant_delta';
 
-      const role = eventRole(event);
-      const kind = isActivityEvent(event) ? 'activity' : 'message';
-      const body = eventBody(event);
-      if (!body && kind === 'message' && role === 'agent') {
-        return [];
-      }
+const isCompletedAssistantMessage = (item: TranscriptItem): boolean =>
+  item.kind === 'message' &&
+  item.role === 'agent' &&
+  String(item.raw?.kind ?? '').toLowerCase() === 'message_completed';
 
-      return [
-        {
-          key: `${event.id ?? 'event'}-${index}`,
-          role: kind === 'activity' ? 'tool' : role,
-          title: eventTitle(event),
-          body,
-          timestamp: messageTimestamp(event.created_at ?? event.ts),
-          raw: event,
-          kind,
-          tone: kind === 'activity' ? eventTone(event) : undefined,
-          collapsed: kind === 'activity' && eventTone(event) !== 'error' && Boolean(body),
-        },
-      ];
-    }),
+const isAccumulatedAssistantDelta = (item: TranscriptItem): boolean =>
+  Boolean(isJsonObject(item.raw?.data) && item.raw.data.accumulated);
+
+const mergeAssistantStreamItems = (items: TranscriptItem[]): TranscriptItem[] => {
+  const merged: TranscriptItem[] = [];
+  for (const item of items) {
+    const previous = merged[merged.length - 1];
+    if (isAssistantDelta(item) && previous && isAssistantDelta(previous)) {
+      previous.body = isAccumulatedAssistantDelta(item)
+        ? item.body
+        : `${previous.body ?? ''}${item.body ?? ''}`;
+      previous.timestamp = item.timestamp ?? previous.timestamp;
+      previous.raw = item.raw;
+      continue;
+    }
+    if (isCompletedAssistantMessage(item) && previous && isAssistantDelta(previous) && item.body) {
+      previous.key = item.key;
+      previous.body = item.body;
+      previous.timestamp = item.timestamp ?? previous.timestamp;
+      previous.raw = item.raw;
+      continue;
+    }
+    merged.push(item);
+  }
+  return merged;
+};
+
+export const transcriptFromEvents = (events: EdgerunnerEvent[], session: EdgerunnerSession) => {
+  let activeProgressKey: string | undefined;
+  if (isActiveSession(session)) {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (!shouldHideEvent(event) && isRunningActivityEvent(event)) {
+        activeProgressKey = `${event.id ?? 'event'}-${index}`;
+        break;
+      }
+    }
+  }
+
+  return mergeAssistantStreamItems(
+    transcriptFromMessages([], session).concat(
+      events.flatMap((event, index): TranscriptItem[] => {
+        if (shouldHideEvent(event)) {
+          return [];
+        }
+
+        const role = eventRole(event);
+        const kind = isActivityEvent(event) ? 'activity' : 'message';
+        const body = eventBody(event);
+        const key = `${event.id ?? 'event'}-${index}`;
+        const tone = kind === 'activity' ? eventTone(event) : undefined;
+        const active = kind === 'activity' && key === activeProgressKey;
+        const runningLifecycle = kind === 'activity' && isRunningActivityEvent(event);
+        if (!body && kind === 'message' && role === 'agent') {
+          return [];
+        }
+
+        return [
+          {
+            key,
+            role: kind === 'activity' ? 'tool' : role,
+            title: eventTitle(event),
+            body,
+            timestamp: messageTimestamp(event.created_at ?? event.ts),
+            raw: event,
+            kind,
+            tone: active || tone !== 'running' || !runningLifecycle ? tone : 'success',
+            collapsed: kind === 'activity' && tone !== 'error' && Boolean(body),
+            active,
+          },
+        ];
+      }),
+    ),
   );
+};
 
 const transcriptFingerprint = (item: TranscriptItem): string =>
   [item.role, item.kind ?? '', item.title, item.body ?? ''].join('\u0000');
