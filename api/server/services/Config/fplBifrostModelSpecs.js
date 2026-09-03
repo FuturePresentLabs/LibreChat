@@ -7,6 +7,7 @@ const LOCAL_ENDPOINT = 'bifrost-local';
 const PAID_ENDPOINT = 'bifrost-openrouter';
 const BIFROST_ENDPOINTS = new Set([LOCAL_ENDPOINT, PAID_ENDPOINT]);
 const LOCAL_MODEL_OWNER_PATTERNS = [/^vllm$/i, /^yggdrasil\//i];
+const ALIAS_MODEL_PATTERNS = [/^fpl\//i];
 const NON_CHAT_MODEL_PATTERNS = [
   /^or-(img|tts|ocr|video)\//i,
   /(^|\/)(tts|stt|ocr|image|video|music|transcribe)(-|\/|$)/i,
@@ -55,13 +56,24 @@ function isChatModel(model) {
   return !NON_CHAT_MODEL_PATTERNS.some((pattern) => pattern.test(model));
 }
 
+function isAliasModel(model) {
+  return ALIAS_MODEL_PATTERNS.some((pattern) => pattern.test(model));
+}
+
+function canonicalModelKey(model) {
+  const withoutRouterPrefix = model.toLowerCase().replace(/^or\//, '');
+  const withoutFreeSuffix = withoutRouterPrefix.replace(/:free$/, '');
+  const segments = withoutFreeSuffix.split('/').filter(Boolean);
+  return segments.at(-1) ?? withoutFreeSuffix;
+}
+
 function targetEndpointForModel(model) {
   return isPaidBifrostModel(model) ? PAID_ENDPOINT : LOCAL_ENDPOINT;
 }
 
 function targetEndpointForModelRow(item) {
   const model = modelName(item);
-  if (!model || item?.routable === false || !isChatModel(model)) {
+  if (!model || item?.routable === false || isAliasModel(model) || !isChatModel(model)) {
     return undefined;
   }
   if (isPaidBifrostModel(model)) {
@@ -120,11 +132,23 @@ function uniqueSpecName(base, seen) {
 function collectDiscoveredModelRows(appConfig, modelRows) {
   const endpointNames = bifrostEndpointNames(appConfig);
   const discovered = new Map();
+  const candidates = [];
+  const localModelKeys = new Set();
 
   for (const item of modelRows ?? []) {
     const model = modelName(item);
     const endpoint = targetEndpointForModelRow(item);
     if (!endpoint || !endpointNames.has(endpoint)) {
+      continue;
+    }
+    candidates.push({ endpoint, model });
+    if (endpoint === LOCAL_ENDPOINT) {
+      localModelKeys.add(canonicalModelKey(model));
+    }
+  }
+
+  for (const { endpoint, model } of candidates) {
+    if (endpoint === PAID_ENDPOINT && localModelKeys.has(canonicalModelKey(model))) {
       continue;
     }
     discovered.set(`${endpoint}\u0000${model}`, { endpoint, model });
@@ -140,6 +164,8 @@ function collectDiscoveredModels(appConfig, modelsConfig, rawModelRows) {
     return discovered;
   }
 
+  const candidates = [];
+  const localModelKeys = new Set();
   for (const [name, models] of Object.entries(modelsConfig ?? {})) {
     const normalizedName = normalizeEndpointName(name);
     if (!endpointNames.has(normalizedName) || !Array.isArray(models)) {
@@ -154,8 +180,18 @@ function collectDiscoveredModels(appConfig, modelsConfig, rawModelRows) {
       if (!endpointNames.has(endpoint)) {
         continue;
       }
-      discovered.set(`${endpoint}\u0000${model}`, { endpoint, model });
+      candidates.push({ endpoint, model });
+      if (endpoint === LOCAL_ENDPOINT) {
+        localModelKeys.add(canonicalModelKey(model));
+      }
     }
+  }
+
+  for (const { endpoint, model } of candidates) {
+    if (endpoint === PAID_ENDPOINT && localModelKeys.has(canonicalModelKey(model))) {
+      continue;
+    }
+    discovered.set(`${endpoint}\u0000${model}`, { endpoint, model });
   }
 
   return discovered;

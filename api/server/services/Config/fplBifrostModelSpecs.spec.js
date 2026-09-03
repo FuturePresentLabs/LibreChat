@@ -53,7 +53,6 @@ describe('FPL Bifrost model specs', () => {
       'fpl-granite-4.1-8b',
       'fpl-glm-5.3',
       'fpl-glm-4-6',
-      'fpl-z-ai-glm-4-6',
     ]);
     expect(modelSpecs.list[1]).toMatchObject({
       label: 'Granite 4.1 8B',
@@ -68,25 +67,23 @@ describe('FPL Bifrost model specs', () => {
       memory: true,
       preset: { endpoint: 'bifrost-local', model: 'glm-4.6' },
     });
-    expect(modelSpecs.list[4]).toMatchObject({
-      label: 'GLM 4.6',
-      description: 'Paid OpenRouter model with memory enabled.',
-      group: 'bifrost-openrouter',
-      memory: true,
-      preset: { endpoint: 'bifrost-openrouter', model: 'or/z-ai/glm-4.6' },
-    });
+    expect(modelSpecs.list.some((spec) => spec.preset.model === 'or/z-ai/glm-4.6')).toBe(false);
   });
 
   it('uses Bifrost model metadata to keep local/free specs node-backed and chat-only', () => {
     const modelSpecs = buildFplBifrostModelSpecs(appConfig, undefined, [
       { id: 'granite-4.1-8b', owned_by: 'vllm', routable: true },
+      { id: 'fpl/llm', owned_by: 'vllm', routable: true },
       { id: 'mac/local/qwen3.8-27b-mlx-4bit', owned_by: 'yggdrasil/averys-mac-studio' },
+      { id: 'fpl/laguna-s', owned_by: 'yggdrasil/dustkernel', routable: true },
+      { id: 'poolside/laguna-s-2.1', owned_by: 'yggdrasil/dustkernel', routable: true },
       { id: 'mac/fpl/transcribe', owned_by: 'yggdrasil/averys-mac-studio', routable: true },
       { id: 'mac/fpl/tts-fast', owned_by: 'yggdrasil/averys-mac-studio', routable: true },
       { id: 'kimi/kimi-k3', owned_by: 'moonshot', routable: true },
       { id: 'gpt-oss-20b', owned_by: 'freetoken', routable: true },
       { id: 'cold-local', owned_by: 'yggdrasil/cold-node', routable: false },
       { id: 'or/z-ai/glm-5.3', owned_by: 'openrouter', routable: true },
+      { id: 'or/poolside/laguna-s-2.1', owned_by: 'openrouter', routable: true },
       { id: 'or-img/black-forest-labs/flux.2-pro', owned_by: 'openrouter-images' },
     ]);
 
@@ -97,6 +94,7 @@ describe('FPL Bifrost model specs', () => {
       ['bifrost-local', 'granite-4.1-8b'],
       ['bifrost-openrouter', 'or/z-ai/glm-5.3'],
       ['bifrost-local', 'mac/local/qwen3.8-27b-mlx-4bit'],
+      ['bifrost-local', 'poolside/laguna-s-2.1'],
     ]);
   });
 
