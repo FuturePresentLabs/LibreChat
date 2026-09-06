@@ -396,7 +396,7 @@ const executeOpenAIChatCompletion = async (envelope, { req, res }) => {
       endpoint: agent.provider,
       model_parameters: agent.model_parameters ?? {},
     };
-    const skillDbMethods = getSkillDbMethods();
+    const skillDbMethods = getSkillDbMethods(req);
 
     const dbMethods = {
       getConvoFiles: db.getConvoFiles,
@@ -425,13 +425,14 @@ const executeOpenAIChatCompletion = async (envelope, { req, res }) => {
     const skillsCapabilityEnabled = enabledCapabilities.has(AgentCapabilities.skills);
     const ephemeralSkillsToggle = request.ephemeralAgent?.skills === true;
     const accessibleSkillIds = skillsCapabilityEnabled
-      ? withDeploymentSkillIds(
+      ? await withDeploymentSkillIds(
           await findAccessibleResources({
             userId: principal.userId,
             role: principal.role,
             resourceType: ResourceType.SKILL,
             requiredPermissions: PermissionBits.VIEW,
           }),
+          req,
         )
       : [];
     const editableSkillIds = skillsCapabilityEnabled
@@ -443,7 +444,7 @@ const executeOpenAIChatCompletion = async (envelope, { req, res }) => {
         })
       : [];
     const skillCreateAllowed = skillsCapabilityEnabled
-      ? await getSkillToolDeps().canCreateSkill({ req })
+      ? await getSkillToolDeps(req).canCreateSkill({ req })
       : false;
 
     const { skillStates, defaultActiveOnShare } = await loadSkillStates({
@@ -725,7 +726,7 @@ const executeOpenAIChatCompletion = async (envelope, { req, res }) => {
         });
       },
       toolEndCallback,
-      ...getSkillToolDeps(),
+      ...getSkillToolDeps(req),
     };
 
     const summarizationConfig = appConfig?.summarization;

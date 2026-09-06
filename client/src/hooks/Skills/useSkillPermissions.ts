@@ -36,14 +36,15 @@ export default function useSkillPermissions(
     const isOwner = skill != null && skill.author === user?.id;
     const isAdmin = user?.role === SystemRoles.ADMIN;
     const privileged = isOwner || isAdmin;
+    const managed = skill?.source === 'fpl';
 
     return {
       isLoading,
       isOwner,
       isAdmin,
-      canEdit: privileged || hasPermission(PermissionBits.EDIT),
-      canDelete: privileged || hasPermission(PermissionBits.DELETE),
-      canShare: privileged || hasPermission(PermissionBits.SHARE),
+      canEdit: !managed && (privileged || hasPermission(PermissionBits.EDIT)),
+      canDelete: !managed && (privileged || hasPermission(PermissionBits.DELETE)),
+      canShare: !managed && (privileged || hasPermission(PermissionBits.SHARE)),
     };
   }, [skill, user?.id, user?.role, hasPermission, isLoading]);
 }

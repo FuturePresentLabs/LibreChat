@@ -2,6 +2,8 @@ const express = require('express');
 const request = require('supertest');
 const JSZip = require('jszip');
 const mongoose = require('mongoose');
+const http = require('http');
+const { once } = require('events');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 
 jest.mock('librechat-data-provider', () => {
@@ -117,6 +119,74 @@ let currentTestUser;
 function setTestUser(user) {
   currentTestUser = user;
 }
+
+describe('FPL managed skills through the native catalog routes', () => {
+  it('lists and inspects for the OIDC owner, denies mutations and follows revocation', async () => {
+    let visible = true;
+    const summary = {
+      id: 'fixture-skill',
+      name: 'Fixture skill',
+      description: 'Use the fixture',
+      owner_type: 'user',
+      owner_id: 'fpl-subject',
+      status: 'active',
+      valid: true,
+      enabled: true,
+    };
+    const upstream = http.createServer((req, res) => {
+      expect(req.headers.authorization).toBe('Bearer fixture-fpl-token');
+      const authorized = visible && req.headers['x-fpl-user-email'] === testUsers.owner.email;
+      res.setHeader('content-type', 'application/json');
+      if (req.url === '/library') {
+        res.end(JSON.stringify({ schema_version: 1, skills: authorized ? [summary] : [] }));
+      } else if (authorized && req.url.startsWith('/library/skill?')) {
+        res.end(JSON.stringify({ skill: summary, body: '# FPL fixture', files: [] }));
+      } else {
+        res.writeHead(404).end('{}');
+      }
+    });
+    upstream.listen(0, '127.0.0.1');
+    await once(upstream, 'listening');
+    const oldUrl = process.env.FPL_SKILLS_URL;
+    const oldToken = process.env.FPL_SKILLS_TOKEN;
+    process.env.FPL_SKILLS_URL = `http://127.0.0.1:${upstream.address().port}`;
+    process.env.FPL_SKILLS_TOKEN = 'fixture-fpl-token';
+    setTestUser({ ...testUsers.owner.toObject(), provider: 'openid', openidId: 'fpl-subject' });
+    try {
+      const catalog = await request(app).get('/api/skills').expect(200);
+      expect(catalog.body.skills).toHaveLength(1);
+      const skill = catalog.body.skills[0];
+      expect(skill.source).toBe('fpl');
+      expect(skill.isPublic).toBe(false);
+      expect(catalog.body).not.toHaveProperty('token');
+      const detail = await request(app).get(`/api/skills/${skill._id}`).expect(200);
+      expect(detail.body.body).toBe('# FPL fixture');
+      await request(app).patch(`/api/skills/${skill._id}`).send({ name: 'overwrite' }).expect(403);
+      await request(app).delete(`/api/skills/${skill._id}`).expect(403);
+      setTestUser({
+        ...testUsers.owner.toObject(),
+        email: 'other@fpl.test',
+        role: SystemRoles.ADMIN,
+        provider: 'openid',
+        openidId: 'admin-subject',
+      });
+      await request(app).patch(`/api/skills/${skill._id}`).send({ name: 'overwrite' }).expect(403);
+      expect((await request(app).get('/api/skills').expect(200)).body.skills).toHaveLength(0);
+      setTestUser({ ...testUsers.owner.toObject(), provider: 'openid', openidId: 'fpl-subject' });
+      visible = false;
+      expect((await request(app).get('/api/skills').expect(200)).body.skills).toHaveLength(0);
+      await request(app).get(`/api/skills/${skill._id}`).expect(404);
+      expect(await Skill.countDocuments()).toBe(0);
+    } finally {
+      if (oldUrl === undefined) delete process.env.FPL_SKILLS_URL;
+      else process.env.FPL_SKILLS_URL = oldUrl;
+      if (oldToken === undefined) delete process.env.FPL_SKILLS_TOKEN;
+      else process.env.FPL_SKILLS_TOKEN = oldToken;
+      upstream.closeAllConnections();
+      await new Promise((resolve) => upstream.close(resolve));
+    }
+  });
+});
 
 beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();

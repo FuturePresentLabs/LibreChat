@@ -18,6 +18,7 @@ const {
   createDeploymentSkillMethods,
   isDeploymentSkillFileSource,
   getDeploymentSkillDownloadStream,
+  createFplSkillProvider,
 } = require('@librechat/api');
 const {
   Permissions,
@@ -45,12 +46,23 @@ const deploymentSkillMethods = createDeploymentSkillMethods({
   updateSkillFileCodeEnvIds: db.updateSkillFileCodeEnvIds,
 });
 
-function getSkillDbMethods() {
-  return deploymentSkillMethods;
+const fplProviders = new WeakMap();
+
+function getFplSkillProvider(req) {
+  if (!req) return undefined;
+  if (!fplProviders.has(req)) {
+    fplProviders.set(req, createFplSkillProvider(req.user));
+  }
+  return fplProviders.get(req);
 }
 
-function withDeploymentSkillIds(ids = []) {
-  return mergeDeploymentSkillIds(ids);
+function getSkillDbMethods(req, runtime = true) {
+  return getFplSkillProvider(req)?.wrap(deploymentSkillMethods, runtime) ?? deploymentSkillMethods;
+}
+
+function withDeploymentSkillIds(ids = [], req) {
+  const merged = mergeDeploymentSkillIds(ids);
+  return getFplSkillProvider(req)?.ids(merged) ?? merged;
 }
 
 function getSkillStrategyFunctions(source) {
@@ -390,12 +402,22 @@ const skillToolDeps = {
   writeSandboxFile,
 };
 
-function getSkillToolDeps() {
-  return skillToolDeps;
+function getSkillToolDeps(req) {
+  const provider = getFplSkillProvider(req);
+  if (!provider) return skillToolDeps;
+  return {
+    ...skillToolDeps,
+    ...provider.wrap(deploymentSkillMethods, true),
+    getStrategyFunctions: (source) =>
+      source === 'fpl'
+        ? { getDownloadStream: (_req, filepath) => provider.getDownloadStream(filepath, true) }
+        : getSkillStrategyFunctions(source),
+  };
 }
 
 module.exports = {
   getSkillToolDeps,
+  getFplSkillProvider,
   canAuthorSkillFiles,
   isAgentSkillsEnabledForRun,
   getSkillDbMethods,

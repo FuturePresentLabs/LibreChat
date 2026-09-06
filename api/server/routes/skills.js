@@ -45,6 +45,7 @@ const {
   getSkillDbMethods,
   withDeploymentSkillIds,
   getSkillStrategyFunctions,
+  getFplSkillProvider,
 } = require('~/server/services/Endpoints/agents/skillDeps');
 
 const router = express.Router();
@@ -104,7 +105,6 @@ const checkSkillCreate = generateCheckAccess({
 // Rate limiters (reuse existing file upload limiters)
 // ---------------------------------------------------------------------------
 const { fileUploadIpLimiter, fileUploadUserLimiter } = createFileLimiters();
-const skillDbMethods = getSkillDbMethods();
 
 router.use(requireJwtAuth);
 router.use(configMiddleware);
@@ -113,33 +113,40 @@ router.use(checkSkillAccess);
 // ---------------------------------------------------------------------------
 // CRUD handlers
 // ---------------------------------------------------------------------------
-const handlers = createSkillsHandlers({
-  createSkill,
-  getSkillById: skillDbMethods.getSkillById,
-  listSkillsByAccess: skillDbMethods.listSkillsByAccess,
-  updateSkill,
-  deleteSkill,
-  listSkillFiles: skillDbMethods.listSkillFiles,
-  deleteSkillFile,
-  getSkillFileByPath: skillDbMethods.getSkillFileByPath,
-  updateSkillFileContent: skillDbMethods.updateSkillFileContent,
-  getStrategyFunctions: getSkillStrategyFunctions,
-  findAccessibleResources: async (params) =>
-    params.resourceType === 'skill' && params.requiredPermissions === PermissionBits.VIEW
-      ? withDeploymentSkillIds(await findAccessibleResources(params))
-      : findAccessibleResources(params),
-  findPubliclyAccessibleResources: async (params) =>
-    params.resourceType === 'skill' && params.requiredPermissions === PermissionBits.VIEW
-      ? withDeploymentSkillIds(await findPubliclyAccessibleResources(params))
-      : findPubliclyAccessibleResources(params),
-  hasPublicPermission: async (params) =>
-    params.resourceType === 'skill' && params.requiredPermissions === PermissionBits.VIEW
-      ? withDeploymentSkillIds([]).some((id) => id.toString() === params.resourceId.toString()) ||
-        hasPublicPermission(params)
-      : hasPublicPermission(params),
-  grantPermission,
-  isValidObjectIdString,
-});
+function getHandlers(req) {
+  const skillDbMethods = getSkillDbMethods(req, false);
+  const provider = getFplSkillProvider(req);
+  return createSkillsHandlers({
+    createSkill,
+    getSkillById: skillDbMethods.getSkillById,
+    listSkillsByAccess: skillDbMethods.listSkillsByAccess,
+    updateSkill,
+    deleteSkill,
+    listSkillFiles: skillDbMethods.listSkillFiles,
+    deleteSkillFile,
+    getSkillFileByPath: skillDbMethods.getSkillFileByPath,
+    updateSkillFileContent: skillDbMethods.updateSkillFileContent,
+    getStrategyFunctions: (source) =>
+      source === 'fpl' && provider
+        ? { getDownloadStream: (_req, filepath) => provider.getDownloadStream(filepath) }
+        : getSkillStrategyFunctions(source),
+    findAccessibleResources: async (params) =>
+      params.resourceType === 'skill' && params.requiredPermissions === PermissionBits.VIEW
+        ? withDeploymentSkillIds(await findAccessibleResources(params), req)
+        : findAccessibleResources(params),
+    findPubliclyAccessibleResources: async (params) =>
+      params.resourceType === 'skill' && params.requiredPermissions === PermissionBits.VIEW
+        ? withDeploymentSkillIds(await findPubliclyAccessibleResources(params))
+        : findPubliclyAccessibleResources(params),
+    hasPublicPermission: async (params) =>
+      params.resourceType === 'skill' && params.requiredPermissions === PermissionBits.VIEW
+        ? withDeploymentSkillIds([]).some((id) => id.toString() === params.resourceId.toString()) ||
+          hasPublicPermission(params)
+        : hasPublicPermission(params),
+    grantPermission,
+    isValidObjectIdString,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // File storage helper: resolve the active strategy's saveBuffer
@@ -316,33 +323,33 @@ router.post(
   importHandler,
 );
 
-router.get('/', maybeStartRequestSkillSync, handlers.list);
-router.post('/', checkSkillCreate, handlers.create);
+router.get('/', maybeStartRequestSkillSync, (req, res) => getHandlers(req).list(req, res));
+router.post('/', checkSkillCreate, (req, res) => getHandlers(req).create(req, res));
 
 router.get(
   '/:id',
   canAccessSkillResource({ requiredPermission: PermissionBits.VIEW }),
-  handlers.get,
+  (req, res) => getHandlers(req).get(req, res),
 );
 
 router.patch(
   '/:id',
   checkSkillCreate,
   canAccessSkillResource({ requiredPermission: PermissionBits.EDIT }),
-  handlers.patch,
+  (req, res) => getHandlers(req).patch(req, res),
 );
 
 router.delete(
   '/:id',
   checkSkillCreate,
   canAccessSkillResource({ requiredPermission: PermissionBits.DELETE }),
-  handlers.delete,
+  (req, res) => getHandlers(req).delete(req, res),
 );
 
 router.get(
   '/:id/files',
   canAccessSkillResource({ requiredPermission: PermissionBits.VIEW }),
-  handlers.listFiles,
+  (req, res) => getHandlers(req).listFiles(req, res),
 );
 
 // Per-file upload (live — replaces 501 stub)
@@ -363,13 +370,13 @@ router.post(
 router.get(
   '/:id/files/*relativePath',
   canAccessSkillResource({ requiredPermission: PermissionBits.VIEW }),
-  handlers.downloadFile,
+  (req, res) => getHandlers(req).downloadFile(req, res),
 );
 
 router.delete(
   '/:id/files/*relativePath',
   canAccessSkillResource({ requiredPermission: PermissionBits.EDIT }),
-  handlers.deleteFile,
+  (req, res) => getHandlers(req).deleteFile(req, res),
 );
 
 // Multer + file-filter error handler — surface as 400, forward everything else

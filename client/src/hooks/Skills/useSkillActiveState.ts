@@ -176,6 +176,7 @@ export default function useSkillActiveState() {
 
   const isActive = useCallback(
     (skill: SkillActiveTarget): boolean => {
+      if (skill.source === 'fpl') return true;
       const override = skillStates[skill._id];
       if (override !== undefined) {
         return override;
@@ -187,6 +188,7 @@ export default function useSkillActiveState() {
 
   const toggle = useCallback(
     (skill: SkillActiveTarget) => {
+      if (skill.source === 'fpl') return;
       if (!canToggle || !userId) {
         return;
       }

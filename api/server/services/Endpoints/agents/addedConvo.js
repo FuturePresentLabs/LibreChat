@@ -102,7 +102,7 @@ const processAddedConvo = async ({
   });
 
   try {
-    const skillDbMethods = getSkillDbMethods();
+    const skillDbMethods = getSkillDbMethods(req);
     const addedAgent = await loadAddedAgent({ req, conversation: addedConvo, primaryAgent });
     if (!addedAgent) {
       return { userMCPAuthMap };

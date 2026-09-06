@@ -54,6 +54,7 @@ export type TGetSkillByName = (
   userInvocable?: boolean;
   /** True for deployment-directory skills that are loaded in memory. */
   deployment?: boolean;
+  source?: string;
 } | null>;
 
 /** List skill summaries for catalog injection (paginated, omits body/frontmatter). */
@@ -80,6 +81,7 @@ export type TListSkillsByAccess = (params: {
     userInvocable?: boolean;
     /** True for deployment-directory skills that are loaded in memory. */
     deployment?: boolean;
+    source?: string;
   }>;
   has_more?: boolean;
   after?: string | null;
@@ -368,7 +370,12 @@ export function resolveAgentScopedSkillIds(
 
 export interface ResolveSkillActiveParams {
   /** Skill being evaluated. Only `_id` and `author` matter for resolution. */
-  skill: { _id: Types.ObjectId | string; author: Types.ObjectId | string; deployment?: boolean };
+  skill: {
+    _id: Types.ObjectId | string;
+    author: Types.ObjectId | string;
+    deployment?: boolean;
+    source?: string;
+  };
   /** Per-user overrides: `{ [skillId]: boolean }`. Missing entries use the default. */
   skillStates?: Record<string, boolean>;
   /** Current user ID. When absent, the function fails closed for all non-overridden skills. */
@@ -389,6 +396,8 @@ export interface ResolveSkillActiveParams {
  */
 export function resolveSkillActive(params: ResolveSkillActiveParams): boolean {
   const { skill, skillStates, userId, defaultActiveOnShare = false } = params;
+  // Managed catalogs already enforce their user's opt-in before returning a row.
+  if (skill.source === 'fpl') return Boolean(userId);
   const override = skillStates?.[skill._id.toString()];
   if (override !== undefined) {
     return override;
@@ -800,6 +809,7 @@ export interface ResolveManualSkillsParams {
     body: string;
     author: Types.ObjectId | string;
     deployment?: boolean;
+    source?: string;
     /** Structured SKILL.md metadata retained for model-bound policy checks. */
     frontmatter?: Record<string, unknown>;
     /**
@@ -967,7 +977,12 @@ export async function resolveManualSkills(
           return null;
         }
         const active = resolveSkillActive({
-          skill: { _id: skill._id, author: skill.author, deployment: skill.deployment },
+          skill: {
+            _id: skill._id,
+            author: skill.author,
+            deployment: skill.deployment,
+            source: skill.source,
+          },
           skillStates,
           userId,
           defaultActiveOnShare,
@@ -1017,6 +1032,7 @@ export interface ResolveAlwaysApplySkillsParams {
       frontmatter?: Record<string, unknown>;
       allowedTools?: string[];
       deployment?: boolean;
+      source?: string;
     }>;
     has_more?: boolean;
     after?: string | null;
@@ -1115,7 +1131,12 @@ export async function resolveAlwaysApplySkills(
         continue;
       }
       const active = resolveSkillActive({
-        skill: { _id: skill._id, author: skill.author, deployment: skill.deployment },
+        skill: {
+          _id: skill._id,
+          author: skill.author,
+          deployment: skill.deployment,
+          source: skill.source,
+        },
         skillStates,
         userId,
         defaultActiveOnShare,

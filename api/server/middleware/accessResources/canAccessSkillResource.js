@@ -1,7 +1,11 @@
 const { ResourceType, PermissionBits } = require('librechat-data-provider');
 const { canAccessResource } = require('./canAccessResource');
 const { getSkillById } = require('~/models');
-const { getDeploymentSkillById } = require('@librechat/api');
+const { getDeploymentSkillById, isFplSkillId } = require('@librechat/api');
+const {
+  getSkillDbMethods,
+  getFplSkillProvider,
+} = require('~/server/services/Endpoints/agents/skillDeps');
 
 /**
  * Skill-specific middleware factory that checks skill access permissions.
@@ -27,8 +31,29 @@ const canAccessSkillResource = (options) => {
     idResolver: getSkillById,
   });
 
-  return (req, res, next) => {
+  return async (req, res, next) => {
     const rawResourceId = req.params[resourceIdParam];
+    if (rawResourceId && isFplSkillId(rawResourceId)) {
+      if (requiredPermission !== PermissionBits.VIEW) {
+        return res.status(403).json({ error: 'FPL skills are managed in SSO' });
+      }
+      try {
+        if (!getFplSkillProvider(req)) return res.status(404).json({ error: 'Skill not found' });
+        const skill = await getSkillDbMethods(req, false).getSkillById(rawResourceId);
+        if (!skill) return res.status(404).json({ error: 'Skill not found' });
+        req.resourceAccess = {
+          resourceType: ResourceType.SKILL,
+          resourceId: skill._id,
+          customResourceId: rawResourceId,
+          permission: requiredPermission,
+          userId: req.user?.id,
+          resourceInfo: skill,
+        };
+        return next();
+      } catch {
+        return res.status(503).json({ error: 'FPL Skills is unavailable' });
+      }
+    }
     const deploymentSkill = rawResourceId ? getDeploymentSkillById(rawResourceId) : null;
     if (!deploymentSkill) {
       return aclMiddleware(req, res, next);

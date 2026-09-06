@@ -51,6 +51,16 @@ function mockPermissions(bits: number, isLoading = false) {
 }
 
 describe('useSkillPermissions', () => {
+  it('keeps FPL-managed skills read-only even for the author and admin', () => {
+    mockUser('user-owner', SystemRoles.ADMIN);
+    mockPermissions(
+      PermissionBits.VIEW | PermissionBits.EDIT | PermissionBits.DELETE | PermissionBits.SHARE,
+    );
+    const { result } = renderHook(() => useSkillPermissions(makeSkill({ source: 'fpl' })));
+    expect(result.current.canEdit).toBe(false);
+    expect(result.current.canDelete).toBe(false);
+    expect(result.current.canShare).toBe(false);
+  });
   beforeEach(() => {
     jest.clearAllMocks();
   });

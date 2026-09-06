@@ -35,7 +35,7 @@ function getDeploymentAuthorId(): Types.ObjectId {
   return deploymentAuthorId;
 }
 
-type SkillId = Types.ObjectId | string;
+export type SkillId = Types.ObjectId | string;
 
 export type DeploymentSkillFile = {
   _id: Types.ObjectId;
@@ -88,7 +88,7 @@ type SkillLookupOptions = {
   preferModelInvocable?: boolean;
 };
 
-type SkillSummaryRow = {
+export type SkillSummaryRow = {
   _id: Types.ObjectId;
   name: string;
   displayTitle?: string;
@@ -111,7 +111,7 @@ type SkillSummaryRow = {
   updatedAt?: Date;
 };
 
-type SkillDetailRow = SkillSummaryRow & {
+export type SkillDetailRow = SkillSummaryRow & {
   body: string;
   frontmatter?: Record<string, unknown>;
   version: number;
@@ -154,10 +154,11 @@ type ListAlwaysApplyResult = {
   after?: string | null;
 };
 
-type SkillFileRow = Omit<
+export type SkillFileRow = Omit<
   DeploymentSkillFile,
-  'codeEnvRef' | 'codeEnvRefs' | 'content' | 'isBinary'
+  'codeEnvRef' | 'codeEnvRefs' | 'content' | 'isBinary' | 'source'
 > & {
+  source: string;
   storageKey?: string;
   storageRegion?: string;
   tenantId?: string;
@@ -896,7 +897,7 @@ function validateUniqueNames(skills: DeploymentSkill[]): void {
   }
 }
 
-function mergeSkillPage({
+export function mergeSkillPage({
   dbResult,
   dbPageBoundary,
   deploymentRows,
@@ -954,7 +955,7 @@ function getMergedPageCursor<T extends Pick<SkillSummaryRow, '_id' | 'updatedAt'
   return lastReturned;
 }
 
-function getDbPageBoundary<T extends Pick<SkillSummaryRow, '_id' | 'updatedAt'>>(dbResult: {
+export function getDbPageBoundary<T extends Pick<SkillSummaryRow, '_id' | 'updatedAt'>>(dbResult: {
   skills: T[];
   has_more?: boolean;
   after?: string | null;
@@ -969,7 +970,7 @@ function getDbPageBoundary<T extends Pick<SkillSummaryRow, '_id' | 'updatedAt'>>
   return decodeCursor(dbResult.after);
 }
 
-function limitRowsToDbPageBoundary<T extends Pick<SkillSummaryRow, '_id' | 'updatedAt'>>(
+export function limitRowsToDbPageBoundary<T extends Pick<SkillSummaryRow, '_id' | 'updatedAt'>>(
   rows: T[],
   dbPageBoundary: Cursor | null,
 ): T[] {
@@ -1075,7 +1076,10 @@ function compareBySkillCursor(
   return a._id.toString().localeCompare(b._id.toString());
 }
 
-function isAfterCursor(row: Pick<SkillSummaryRow, '_id' | 'updatedAt'>, cursor: Cursor | null) {
+export function isAfterCursor(
+  row: Pick<SkillSummaryRow, '_id' | 'updatedAt'>,
+  cursor: Cursor | null,
+): boolean {
   if (!cursor) {
     return true;
   }
@@ -1090,7 +1094,7 @@ function isAfterCursor(row: Pick<SkillSummaryRow, '_id' | 'updatedAt'>, cursor: 
   return row._id.toString() > cursor._id.toString();
 }
 
-function decodeCursor(cursor: string | null | undefined): Cursor | null {
+export function decodeCursor(cursor: string | null | undefined): Cursor | null {
   if (!cursor || cursor === 'undefined' || cursor === 'null') {
     return null;
   }

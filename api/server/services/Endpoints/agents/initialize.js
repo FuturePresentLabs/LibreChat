@@ -219,7 +219,7 @@ const initializeClient = async ({
     appConfig?.endpoints?.[EModelEndpoint.agents]?.statefulCodeSessions?.allowedEnvironments,
   );
   const ephemeralSkillsToggle = req.body?.ephemeralAgent?.skills === true;
-  const skillDbMethods = getSkillDbMethods();
+  const skillDbMethods = getSkillDbMethods(req);
 
   if (!endpointOption.agent) {
     throw new Error('No agent promise provided');
@@ -245,7 +245,7 @@ const initializeClient = async ({
         role: req.user.role,
         resourceType: ResourceType.SKILL,
         requiredPermissions: PermissionBits.VIEW,
-      }).then(withDeploymentSkillIds)
+      }).then((ids) => withDeploymentSkillIds(ids, req))
     : Promise.resolve([]);
   const editableSkillIdsPromise = skillsCapabilityEnabled
     ? findAccessibleResources({
@@ -256,7 +256,7 @@ const initializeClient = async ({
       })
     : Promise.resolve([]);
   const skillCreateAllowedPromise = skillsCapabilityEnabled
-    ? getSkillToolDeps().canCreateSkill({ req })
+    ? getSkillToolDeps(req).canCreateSkill({ req })
     : Promise.resolve(false);
   const skillStatesPromise = accessibleSkillIdsPromise.then((accessibleSkillIds) =>
     loadSkillStates({
@@ -376,7 +376,7 @@ const initializeClient = async ({
     }),
     emitAttachment: createAttachmentEmitter({ res, streamId, jobCreatedAt }),
     emitPtcProgress: createPtcProgressEmitter({ res, streamId, jobCreatedAt }),
-    ...getSkillToolDeps(),
+    ...getSkillToolDeps(req),
   };
 
   const summarizationOptions =
@@ -1347,7 +1347,7 @@ const initializeClient = async ({
           payload,
           accessibleSkillIds,
           executionProfiles: codeExecutionProfiles,
-          ...getSkillToolDeps(),
+          ...getSkillToolDeps(req),
         })
     : undefined;
 

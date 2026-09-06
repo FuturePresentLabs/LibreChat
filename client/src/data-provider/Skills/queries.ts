@@ -32,9 +32,10 @@ export const useListSkillsQuery = (
     ],
     () => dataService.listSkills(params),
     {
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
-      refetchOnMount: false,
+      staleTime: 0,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+      refetchOnMount: true,
       ...config,
     },
   );
@@ -69,9 +70,10 @@ export const useSkillsInfiniteQuery = (
     {
       getNextPageParam: (lastPage) =>
         lastPage.has_more && lastPage.after ? lastPage.after : undefined,
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
-      refetchOnMount: false,
+      staleTime: 0,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+      refetchOnMount: true,
       ...config,
     },
   );

@@ -28,10 +28,11 @@ export default function SkillDetail({ skill, onEdit, onDelete }: SkillDetailProp
 
   const isPublic = skill.isPublic === true;
   const isShared = skill.author !== user?.id && Boolean(skill.authorName);
-  const addedBy = isShared ? skill.authorName : localize('com_ui_you');
-  const updatedDate = skill.updatedAt
-    ? format(new Date(skill.updatedAt), 'MMM d, yyyy')
-    : undefined;
+  const addedBy = isShared || skill.source === 'fpl' ? skill.authorName : localize('com_ui_you');
+  const updatedDate =
+    skill.source !== 'fpl' && skill.updatedAt
+      ? format(new Date(skill.updatedAt), 'MMM d, yyyy')
+      : undefined;
 
   const { fields: frontmatterFields, body: cleanBody } = useMemo(
     () => parseFrontmatter(skill.body ?? '', SKIP_KEYS),
@@ -79,7 +80,18 @@ export default function SkillDetail({ skill, onEdit, onDelete }: SkillDetailProp
 
         {/* Actions */}
         <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pt-1">
-          <SkillToggle enabled={skillEnabled} onChange={() => toggle(skill)} />
+          {skill.source === 'fpl' ? (
+            <a
+              href="https://sso.fpl.dev/skills"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-text-primary underline"
+            >
+              {localize('com_ui_skill_manage_fpl')}
+            </a>
+          ) : (
+            <SkillToggle enabled={skillEnabled} onChange={() => toggle(skill)} />
+          )}
           <ShareSkill skill={skill} />
           {permissions.canEdit && onEdit && (
             <TooltipAnchor

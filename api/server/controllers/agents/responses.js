@@ -632,7 +632,7 @@ const executeResponse = async (envelope, { req, res }) => {
 
     // Create tool loader
     const loadTools = createToolLoader(abortController.signal);
-    const skillDbMethods = getSkillDbMethods();
+    const skillDbMethods = getSkillDbMethods(req);
 
     // Initialize the agent first to check for disableStreaming
     const endpointOption = {
@@ -667,13 +667,14 @@ const executeResponse = async (envelope, { req, res }) => {
     const skillsCapabilityEnabled = enabledCapabilities.has(AgentCapabilities.skills);
     const ephemeralSkillsToggle = request.ephemeralAgent?.skills === true;
     const accessibleSkillIds = skillsCapabilityEnabled
-      ? withDeploymentSkillIds(
+      ? await withDeploymentSkillIds(
           await findAccessibleResources({
             userId: principal.userId,
             role: principal.role,
             resourceType: ResourceType.SKILL,
             requiredPermissions: PermissionBits.VIEW,
           }),
+          req,
         )
       : [];
     const editableSkillIds = skillsCapabilityEnabled
@@ -685,7 +686,7 @@ const executeResponse = async (envelope, { req, res }) => {
         })
       : [];
     const skillCreateAllowed = skillsCapabilityEnabled
-      ? await getSkillToolDeps().canCreateSkill({ req })
+      ? await getSkillToolDeps(req).canCreateSkill({ req })
       : false;
 
     const { skillStates, defaultActiveOnShare } = await loadSkillStates({
@@ -1055,7 +1056,7 @@ const executeResponse = async (envelope, { req, res }) => {
           });
         },
         toolEndCallback,
-        ...getSkillToolDeps(),
+        ...getSkillToolDeps(req),
       };
 
       // Combine handlers
@@ -1252,7 +1253,7 @@ const executeResponse = async (envelope, { req, res }) => {
           });
         },
         toolEndCallback,
-        ...getSkillToolDeps(),
+        ...getSkillToolDeps(req),
       };
 
       const handlers = {
