@@ -71,3 +71,33 @@ Rollback: remove both FPL provider environment variables and restore the prior
 LibreChat image. Retain the FPL state volume. Native LibreChat skills remain
 available; stale FPL selections cannot load remote instructions without the
 provider.
+
+## Batty Release Runbook
+
+`scripts/deploy-fpl-skills.py` updates the existing Batty Compose deployment.
+It requires Python 3 and PyYAML on the host. Run its companion
+`scripts/test-deploy-fpl-skills.py` before rollout.
+
+1. Commit both repositories and push to their configured remotes.
+2. Transfer the exact Skills commit using `git archive` into
+   `/tmp/skills-SKILLS_COMMIT` on Batty, using the same hash length throughout.
+3. Build LibreChat from its committed archive, setting `BUILD_COMMIT`,
+   `BUILD_BRANCH`, and `BUILD_DATE`. Tag and push the image as
+   `registry-direct.fpl.dev/librechat:sha-FULL_LIBRECHAT_COMMIT`.
+4. Ensure that image is present on Batty. Run:
+
+   ```sh
+   ssh batty 'sudo -n python3 - IMAGE SKILLS_COMMIT VERIFY_EMAIL' < scripts/deploy-fpl-skills.py
+   ```
+
+   Substitute the immutable image, Skills commit, and an existing SSO email.
+   Verification reads the scoped catalog, not skill bodies or agent metrics.
+5. Check the public chat URL and log in to verify the native Skills picker.
+
+The script copies the Skills archive to an immutable release directory, privately
+backs up both edited Compose files, and checks the complete merged configuration
+for unexpected changes before restarting anything. It preserves credentials and
+state, checks health and authentication, and restores the previous configuration
+on rollout failure. A later manual rollback restores the two Compose files from
+the printed private backup and runs the same three-file Compose command with
+`up -d --no-deps --pull never fpl-skills api`. Never remove the state volume.
