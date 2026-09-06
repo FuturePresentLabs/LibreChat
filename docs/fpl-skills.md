@@ -64,8 +64,8 @@ fresh membership revocation. It does not contact production or an LLM.
 
 Focused suites cover the provider, native catalog pagination, Express routes
 with real MongoDB, agent initialization, and composer/permission behavior.
-The repository-wide client typecheck currently reports unrelated errors in
-Edgerunner view/transcript/mutations files; no Skills errors were reported.
+The Edgerunner JSON type and React prop errors found during validation were fixed
+in a separate release commit. The repository-wide client typecheck now passes.
 
 Rollback: remove both FPL provider environment variables and restore the prior
 LibreChat image. Retain the FPL state volume. Native LibreChat skills remain

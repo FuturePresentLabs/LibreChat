@@ -1,9 +1,6 @@
 export type EdgerunnerPrimitive = string | number | boolean | null;
 
-export type EdgerunnerJson =
-  | EdgerunnerPrimitive
-  | EdgerunnerJson[]
-  | { [key: string]: EdgerunnerJson };
+export type EdgerunnerJson = EdgerunnerPrimitive | EdgerunnerJson[] | EdgerunnerJsonObject;
 
 export type EdgerunnerJsonObject = {
   [key: string]: EdgerunnerJson | undefined;

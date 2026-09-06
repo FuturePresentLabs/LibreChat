@@ -540,15 +540,17 @@ export const transcriptFromMessages = (
 const isAssistantDelta = (item: TranscriptItem): boolean =>
   item.kind === 'message' &&
   item.role === 'agent' &&
+  isJsonObject(item.raw) &&
   String(item.raw?.kind ?? '').toLowerCase() === 'assistant_delta';
 
 const isCompletedAssistantMessage = (item: TranscriptItem): boolean =>
   item.kind === 'message' &&
   item.role === 'agent' &&
+  isJsonObject(item.raw) &&
   String(item.raw?.kind ?? '').toLowerCase() === 'message_completed';
 
 const isAccumulatedAssistantDelta = (item: TranscriptItem): boolean =>
-  Boolean(isJsonObject(item.raw?.data) && item.raw.data.accumulated);
+  Boolean(isJsonObject(item.raw) && isJsonObject(item.raw.data) && item.raw.data.accumulated);
 
 const mergeAssistantStreamItems = (items: TranscriptItem[]): TranscriptItem[] => {
   const merged: TranscriptItem[] = [];

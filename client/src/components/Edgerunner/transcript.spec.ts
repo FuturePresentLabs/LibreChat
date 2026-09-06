@@ -1,4 +1,4 @@
-import type { EdgerunnerEvent, EdgerunnerSession } from 'librechat-data-provider';
+import type { EdgerunnerEvent, EdgerunnerSession, EdgerunnerJson } from 'librechat-data-provider';
 import {
   transcriptFromEvents,
   transcriptFromMessages,
@@ -14,6 +14,21 @@ const session = (overrides: Partial<EdgerunnerSession> = {}): EdgerunnerSession 
 });
 
 describe('Edgerunner transcript mapping', () => {
+  it.each<EdgerunnerJson>([null, ['metadata'], 'metadata', 4])(
+    'accepts non-object transcript metadata: %p',
+    (data) => {
+      expect(() =>
+        transcriptFromMessagesAndEvents(
+          [
+            { id: 1, role: 'assistant', content: 'First response', data },
+            { id: 2, role: 'assistant', content: 'Second response', data },
+          ],
+          [],
+          session(),
+        ),
+      ).not.toThrow();
+    },
+  );
   it('splits terminal activity out of assistant prose and hides internal fallback labels', () => {
     const esc = String.fromCharCode(27);
     const middleDot = String.fromCharCode(183);

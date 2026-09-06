@@ -211,7 +211,7 @@ const repoSegments = (repo?: Pick<EdgerunnerRepository, 'owner' | 'name' | 'full
 };
 
 const repoLaunchValue = (repo: EdgerunnerRepository): string =>
-  repo.clone_url || repo.html_url || repo.full_name || repo.ssh_url;
+  repo.clone_url || repo.html_url || repo.full_name || repo.ssh_url || '';
 
 const shortSessionTitle = (session: EdgerunnerSession): string =>
   session.title || repoDisplayName(session.repo_url) || session.id;
@@ -441,7 +441,9 @@ function SessionSelect({
               {localize(groupName as TranslationKeys) || groupName}
             </SelectLabel>
             {conversations.map((conversation) => {
-              const session = sessionById.get(conversation.conversationId);
+              const session = conversation.conversationId
+                ? sessionById.get(conversation.conversationId)
+                : undefined;
               if (!session) {
                 return null;
               }
@@ -714,7 +716,8 @@ function EdgerunnerComposerShell({
               aria-label={ariaLabel}
               placeholder={placeholder}
               data-testid="text-input"
-              style={{ minHeight: rows > 1 ? 112 : 44, overflowY: 'auto' }}
+              minRows={rows > 1 ? 4 : 1}
+              style={{ overflowY: 'auto' }}
               className={cn(
                 'm-0 w-full resize-none bg-transparent px-5 py-[13px] placeholder:text-text-tertiary md:py-3.5',
                 'scrollbar-hover max-h-[45vh] transition-[max-height] duration-200 disabled:cursor-not-allowed md:max-h-[55vh]',
@@ -1077,7 +1080,7 @@ function ActivityTranscriptRow({ item }: { item: TranscriptItem }) {
               'group ml-0 min-w-0 max-w-full rounded-md border text-sm md:ml-8',
               activityToneClasses(item.tone),
             )}
-            defaultOpen={hasBody && !item.collapsed}
+            open={hasBody && !item.collapsed}
           >
             <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 [&::-webkit-details-marker]:hidden">
               {icon}
@@ -1162,7 +1165,7 @@ function MessageTranscriptRow({
               }}
             />
           }
-          footer={<SubRow classes={messageFooterClasses} />}
+          footer={<SubRow classes={messageFooterClasses}>{null}</SubRow>}
         >
           <MessageContext.Provider value={messageContextValue}>
             <MessageContent
