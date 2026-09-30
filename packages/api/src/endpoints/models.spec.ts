@@ -111,6 +111,21 @@ describe('fetchModels', () => {
     );
   });
 
+  it('adds admin-configured model discovery query parameters', async () => {
+    const models = await fetchModels({
+      apiKey: 'testApiKey',
+      baseURL: 'https://bifrost.test/v1',
+      fetchQuery: { scope: 'personal' },
+      name: 'bifrost-loki',
+    });
+
+    expect(models).toEqual(['model-1', 'model-2']);
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      'https://bifrost.test/v1/models?scope=personal',
+      expect.any(Object),
+    );
+  });
+
   it('should pass custom headers to the API request', async () => {
     const customHeaders = {
       'X-Custom-Header': 'custom-value',

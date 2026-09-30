@@ -36,6 +36,10 @@ function headersFingerprint(headers: Record<string, string> | undefined): string
   return crypto.createHash('sha256').update(JSON.stringify(ordered)).digest('hex').slice(0, 16);
 }
 
+function recordFingerprint(value: Record<string, string> | undefined): string {
+  return headersFingerprint(value);
+}
+
 interface ResolvedEndpoint {
   name: string;
   endpoint: TEndpoint;
@@ -171,7 +175,7 @@ export function createLoadConfigModels(deps: LoadConfigModelsDeps) {
       // endpoints that happen to share the same baseURL+apiKey but configure
       // different (potentially user-bound) headers don't reuse each other's
       // fetched model list within the same request.
-      const uniqueKey = `${BASE_URL}__${API_KEY}__${headersFingerprint(endpointHeaders)}`;
+      const uniqueKey = `${BASE_URL}__${API_KEY}__${headersFingerprint(endpointHeaders)}__${recordFingerprint(models?.fetchQuery)}`;
 
       if (models?.fetch && !apiKeyIsUserProvided && !baseURLIsUserProvided) {
         if (!fetchPromisesMap[uniqueKey]) {
@@ -190,6 +194,7 @@ export function createLoadConfigModels(deps: LoadConfigModelsDeps) {
             headers: endpointHeaders,
             direct: endpoint.directEndpoint,
             userIdQuery: models.userIdQuery,
+            fetchQuery: models.fetchQuery,
             tokenKey,
           });
         }
@@ -233,6 +238,7 @@ export function createLoadConfigModels(deps: LoadConfigModelsDeps) {
                 headers: baseURLIsUserProvided ? undefined : endpointHeaders,
                 direct: endpoint.directEndpoint,
                 userIdQuery: models.userIdQuery,
+                fetchQuery: models.fetchQuery,
                 skipCache: true,
                 /** Fetched with the user's key/URL — always user-scoped */
                 tokenKey: getTokenConfigKey(endpoint, name, req.user?.id ?? '', tenantId),

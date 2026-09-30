@@ -1123,11 +1123,16 @@ export const endpointSchema = baseEndpointSchema.merge(
      * reads can show which key is configured without returning the secret. */
     apiKeyPreview: z.string().optional(),
     baseURL: z.string(),
-    models: z.object({
-      default: z.array(modelItemSchema).min(1),
-      fetch: z.boolean().optional(),
-      userIdQuery: z.boolean().optional(),
-    }),
+    models: z
+      .object({
+        default: z.array(modelItemSchema).default([]),
+        fetch: z.boolean().optional(),
+        fetchQuery: z.record(z.string()).optional(),
+        userIdQuery: z.boolean().optional(),
+      })
+      .refine((models) => models.fetch === true || models.default.length > 0, {
+        message: 'models requires fetch: true or at least one default model',
+      }),
     iconURL: z.string().optional(),
     modelDisplayLabel: z.string().optional(),
     /**

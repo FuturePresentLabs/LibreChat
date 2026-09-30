@@ -45,6 +45,8 @@ export interface FetchModelsParams {
   azure?: boolean;
   /** Whether to send user ID as query parameter */
   userIdQuery?: boolean;
+  /** Admin-configured query parameters for model discovery. */
+  fetchQuery?: Record<string, string>;
   /** Whether to create token configuration from API response */
   createTokenConfig?: boolean;
   /** Cache key for token configuration (uses name if omitted) */
@@ -161,6 +163,7 @@ export async function fetchModels({
   direct = false,
   azure = false,
   userIdQuery = false,
+  fetchQuery,
   createTokenConfig = true,
   tokenKey,
   headers,
@@ -280,6 +283,7 @@ export async function fetchModels({
     }
 
     const url = new URL(`${(baseURL ?? '').replace(/\/+$/, '')}${azure ? '' : '/models'}`);
+    Object.entries(fetchQuery ?? {}).forEach(([key, value]) => url.searchParams.set(key, value));
     if (user && userIdQuery) {
       url.searchParams.append('user', user);
     }

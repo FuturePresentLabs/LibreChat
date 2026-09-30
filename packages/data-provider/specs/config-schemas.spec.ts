@@ -251,6 +251,36 @@ describe('endpointSchema deprecated fields', () => {
   });
 });
 
+describe('endpointSchema fetched models', () => {
+  const endpoint = {
+    name: 'BifrostLoki',
+    apiKey: 'service-key',
+    baseURL: 'https://bifrost.example.test/v1',
+  };
+
+  it('accepts a fetch-only endpoint without inventing a static fallback', () => {
+    const result = endpointSchema.safeParse({
+      ...endpoint,
+      models: { fetch: true, fetchQuery: { scope: 'personal' } },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.models.default).toEqual([]);
+      expect(result.data.models.fetchQuery).toEqual({ scope: 'personal' });
+    }
+  });
+
+  it('rejects an endpoint with neither discovery nor a default model', () => {
+    const result = endpointSchema.safeParse({
+      ...endpoint,
+      models: {},
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
 describe('endpointSchema addParams validation', () => {
   const validEndpoint = {
     name: 'CustomEndpoint',
